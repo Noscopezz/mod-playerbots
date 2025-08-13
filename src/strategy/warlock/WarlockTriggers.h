@@ -10,6 +10,8 @@
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
 #include "CureTriggers.h"
+#include "Trigger.h"
+#include <set>
 
 class PlayerbotAI;
 
@@ -30,6 +32,20 @@ public:
     bool IsActive() override;
 };
 
+class OutOfSoulShardsTrigger : public Trigger
+{
+public:
+    OutOfSoulShardsTrigger(PlayerbotAI* botAI) : Trigger(botAI, "no soul shard", 2) {}
+    bool IsActive() override;
+};
+
+class TooManySoulShardsTrigger : public Trigger
+{
+public:
+    TooManySoulShardsTrigger(PlayerbotAI* botAI) : Trigger(botAI, "too many soul shards") {}
+    bool IsActive() override;
+};
+
 class FirestoneTrigger : public BuffTrigger
 {
 public:
@@ -44,11 +60,11 @@ public:
     bool IsActive() override;
 };
 
-class HasSoulstoneTrigger : public Trigger
+class OutOfSoulstoneTrigger : public Trigger
 {
 public:
-    HasSoulstoneTrigger(PlayerbotAI* botAI) : Trigger(botAI, "no soulstone") {}
-    bool IsActive() override { return AI_VALUE2(uint32, "item count", "soulstone") == 0; }
+    OutOfSoulstoneTrigger(PlayerbotAI* botAI) : Trigger(botAI, "no soulstone") {}
+    bool IsActive() override;
 };
 
 class SoulstoneTrigger : public Trigger
@@ -58,8 +74,18 @@ public:
 
     bool IsActive() override
     {
-        // Just check if we have a soulstone item available
-        return AI_VALUE2(uint32, "item count", "soulstone") > 0;
+        static const std::vector<uint32> soulstoneSpellIds = {20707, 20762, 20763, 20764, 20765, 27239, 47883};
+
+        if (AI_VALUE2(uint32, "item count", "soulstone") == 0)
+            return false;
+
+        for (uint32 spellId : soulstoneSpellIds)
+        {
+            if (!bot->HasSpellCooldown(spellId))
+                return true;  // Ready to use
+        }
+
+        return false;  // All are on cooldown
     }
 };
 
@@ -87,6 +113,14 @@ class HasHealthstoneTrigger : public WarlockConjuredItemTrigger
 public:
     HasHealthstoneTrigger(PlayerbotAI* botAI) : WarlockConjuredItemTrigger(botAI, "healthstone") {}
 };
+
+class WrongPetTrigger : public Trigger
+{
+public:
+    WrongPetTrigger(PlayerbotAI* botAI) : Trigger(botAI, "wrong pet") {}
+    bool IsActive() override;
+};
+
 
 // CC and Pet Triggers
 
@@ -122,33 +156,7 @@ public:
     DevourMagicCleanseTrigger(PlayerbotAI* botAI) : PartyMemberNeedCureTrigger(botAI, "devour magic", DISPEL_MAGIC) {}
 };
 
-// DoT/Debuff Triggers
-
-class CurseOfAgonyTrigger : public DebuffTrigger
-{
-public:
-    CurseOfAgonyTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of agony", 1, true, 0.5f) {}
-    bool IsActive() override
-    {
-        if (botAI->HasStrategy(
-                "curse of elements", BOT_STATE_COMBAT))  // If Curse of the Elements strategy is active, do not cast Curse of Agony
-            return false;
-        return BuffTrigger::IsActive();
-    }
-};
-
-class CurseOfAgonyOnAttackerTrigger : public DebuffOnAttackerTrigger
-{
-public:
-    CurseOfAgonyOnAttackerTrigger(PlayerbotAI* botAI) : DebuffOnAttackerTrigger(botAI, "curse of agony", true) {}
-    bool IsActive() override
-    {
-        if (botAI->HasStrategy(
-                "curse of elements", BOT_STATE_COMBAT))  // If Curse of the Elements strategy is active, do not cast Curse of Agony
-            return false;
-        return BuffTrigger::IsActive();
-    }
-};
+// DoT/Curse Triggers
 
 class CorruptionTrigger : public DebuffTrigger
 {
@@ -204,11 +212,52 @@ public:
     HauntTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "haunt", 1, true, 0) {}
 };
 
+class CurseOfAgonyTrigger : public DebuffTrigger
+{
+public:
+    CurseOfAgonyTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of agony", 1, true, 0.5f) {}
+    bool IsActive() override { return BuffTrigger::IsActive(); }
+};
+
+class CurseOfAgonyOnAttackerTrigger : public DebuffOnAttackerTrigger
+{
+public:
+    CurseOfAgonyOnAttackerTrigger(PlayerbotAI* botAI) : DebuffOnAttackerTrigger(botAI, "curse of agony", true) {}
+    bool IsActive() override { return BuffTrigger::IsActive(); }
+};
+
 class CurseOfTheElementsTrigger : public DebuffTrigger
 {
 public:
-    CurseOfTheElementsTrigger(PlayerbotAI* botAI)
-        : DebuffTrigger(botAI, "curse of the elements", 1, true, 0.5f) {}
+    CurseOfTheElementsTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of the elements", 1, true, 0.5f) {}
+    bool IsActive() override;
+};
+
+class CurseOfDoomTrigger : public DebuffTrigger
+{
+public:
+    CurseOfDoomTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of doom", 1, true, 0.5f) {}
+    bool IsActive() override { return BuffTrigger::IsActive(); }
+};
+
+class CurseOfExhaustionTrigger : public DebuffTrigger
+{
+public:
+    CurseOfExhaustionTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of exhaustion", 1, true, 0.5f) {}
+    bool IsActive() override { return BuffTrigger::IsActive(); }
+};
+
+class CurseOfTonguesTrigger : public DebuffTrigger
+{
+public:
+    CurseOfTonguesTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of tongues", 1, true, 0.5f) {}
+    bool IsActive() override { return BuffTrigger::IsActive(); }
+};
+
+class CurseOfWeaknessTrigger : public DebuffTrigger
+{
+public:
+    CurseOfWeaknessTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "curse of weakness", 1, true, 0.5f) {}
     bool IsActive() override;
 };
 
@@ -271,4 +320,33 @@ class MoltenCoreTrigger : public HasAuraTrigger
 public:
     MoltenCoreTrigger(PlayerbotAI* ai) : HasAuraTrigger(ai, "molten core") {}
 };
+
+class MetamorphosisNotActiveTrigger : public HasNoAuraTrigger
+{
+public:
+    MetamorphosisNotActiveTrigger(PlayerbotAI* ai) : HasNoAuraTrigger(ai, "metamorphosis") {}
+};
+
+class MetaMeleeEnemyTooCloseForSpellTrigger : public TwoTriggers
+{
+public:
+    MetaMeleeEnemyTooCloseForSpellTrigger(PlayerbotAI* ai)
+        : TwoTriggers(ai, "enemy too close for spell", "metamorphosis not active") {}
+};
+
+class RainOfFireChannelCheckTrigger : public Trigger
+{
+public:
+    RainOfFireChannelCheckTrigger(PlayerbotAI* botAI, uint32 minEnemies = 2)
+        : Trigger(botAI, "rain of fire channel check"), minEnemies(minEnemies)
+    {
+    }
+
+    bool IsActive() override;
+
+protected:
+    uint32 minEnemies;
+    static const std::set<uint32> RAIN_OF_FIRE_SPELL_IDS;
+};
+
 #endif

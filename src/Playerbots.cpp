@@ -29,6 +29,7 @@
 #include "ScriptMgr.h"
 #include "cs_playerbots.h"
 #include "cmath"
+#include "BattleGroundTactics.h"
 
 class PlayerbotsDatabaseScript : public DatabaseScript
 {
@@ -196,36 +197,42 @@ public:
         sRandomPlayerbotMgr->HandleCommand(type, msg, player);
     }
 
-    bool OnPlayerBeforeCriteriaProgress(Player* player, AchievementCriteriaEntry const* /*criteria*/) override
+    bool OnPlayerBeforeAchievementComplete(Player* player, AchievementEntry const* achievement) override
     {
-        if (sRandomPlayerbotMgr->IsRandomBot(player))
+        if (sRandomPlayerbotMgr->IsRandomBot(player) && (achievement->flags == 256 || achievement->flags == 768))
         {
             return false;
         }
-        return true;
-    }
 
-    bool OnPlayerBeforeAchievementComplete(Player* player, AchievementEntry const* /*achievement*/) override
-    {
-        if (sRandomPlayerbotMgr->IsRandomBot(player))
-        {
-            return false;
-        }
         return true;
     }
 
     void OnPlayerGiveXP(Player* player, uint32& amount, Unit* /*victim*/, uint8 /*xpSource*/) override
     {
-        if (!player->GetSession()->IsBot())
-            return;
-        
-        if (!sRandomPlayerbotMgr->IsRandomBot(player))
+        // early return
+        if (sPlayerbotAIConfig->randomBotXPRate == 1.0 || !player)
             return;
 
-        if (sPlayerbotAIConfig->randomBotXPRate != 1.0)
+        // no XP multiplier, when player is no bot.
+        if (!player->GetSession()->IsBot() || !sRandomPlayerbotMgr->IsRandomBot(player))
+            return;
+
+        // no XP multiplier, when bot has group where leader is a real player.
+        if (Group* group = player->GetGroup())
         {
-            amount = static_cast<uint32>(std::round(static_cast<float>(amount) * sPlayerbotAIConfig->randomBotXPRate));
+            Player* leader = group->GetLeader();
+            if (leader && leader != player)
+            {
+                if (PlayerbotAI* leaderBotAI = GET_PLAYERBOT_AI(leader))
+                {
+                    if (leaderBotAI->HasRealPlayerMaster())
+                        return;
+                }
+            }
         }
+
+        // otherwise apply bot XP multiplier.
+        amount = static_cast<uint32>(std::round(static_cast<float>(amount) * sPlayerbotAIConfig->randomBotXPRate));
     }
 };
 
@@ -370,6 +377,10 @@ public:
 
     void OnPlayerbotLogout(Player* player) override
     {
+        // immediate purge of the bot's AI upon disconnection
+        if (player && player->GetSession()->IsBot())
+            sPlayerbotsMgr->RemovePlayerbotAI(player->GetGUID()); // removes a long-standing crash (0xC0000005 ACCESS_VIOLATION)
+    
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
         {
             PlayerbotAI* botAI = GET_PLAYERBOT_AI(player);
@@ -389,6 +400,43 @@ public:
     }
 };
 
+class PlayerBotsBGScript : public BGScript
+{
+public:
+    PlayerBotsBGScript() : BGScript("PlayerBotsBGScript") {}
+
+    void OnBattlegroundStart(Battleground* bg) override
+    {
+        BGStrategyData data;
+
+        switch (bg->GetBgTypeID())
+        {
+            case BATTLEGROUND_WS:
+                data.allianceStrategy = urand(0, WS_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, WS_STRATEGY_MAX - 1);
+                break;
+            case BATTLEGROUND_AB:
+                data.allianceStrategy = urand(0, AB_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, AB_STRATEGY_MAX - 1);
+                break;
+            case BATTLEGROUND_AV:
+                data.allianceStrategy = urand(0, AV_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, AV_STRATEGY_MAX - 1);
+                break;
+            case BATTLEGROUND_EY:
+                data.allianceStrategy = urand(0, EY_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, EY_STRATEGY_MAX - 1);
+                break;
+            default:
+                break;
+        }
+
+        bgStrategies[bg->GetInstanceID()] = data;
+    }
+
+    void OnBattlegroundEnd(Battleground* bg, TeamId /*winnerTeam*/) override { bgStrategies.erase(bg->GetInstanceID()); }
+};
+
 void AddPlayerbotsScripts()
 {
     new PlayerbotsDatabaseScript();
@@ -397,6 +445,7 @@ void AddPlayerbotsScripts()
     new PlayerbotsServerScript();
     new PlayerbotsWorldScript();
     new PlayerbotsScript();
+    new PlayerBotsBGScript();
 
     AddSC_playerbots_commandscript();
 }
