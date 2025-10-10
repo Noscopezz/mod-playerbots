@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "GiveItemAction.h"
@@ -76,7 +76,7 @@ bool GiveFoodAction::isUseful()
 
     bool isRandomBot = GetTarget()->IsPlayer() && sRandomPlayerbotMgr->IsRandomBot((Player*)GetTarget());
 
-    return !isRandomBot || (isRandomBot && !sPlayerbotAIConfig->freeFood);
+    return !isRandomBot || (isRandomBot && !botAI->HasCheat(BotCheatMask::food));
 }
 
 Unit* GiveWaterAction::GetTarget() { return AI_VALUE(Unit*, "party member without water"); }
@@ -88,5 +88,5 @@ bool GiveWaterAction::isUseful()
 
     bool isRandomBot = GetTarget()->IsPlayer() && sRandomPlayerbotMgr->IsRandomBot((Player*)GetTarget());
 
-    return !isRandomBot || (isRandomBot && !sPlayerbotAIConfig->freeFood);
+    return !isRandomBot || (isRandomBot && !botAI->HasCheat(BotCheatMask::food));
 }

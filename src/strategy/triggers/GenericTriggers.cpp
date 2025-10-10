@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "GenericTriggers.h"
@@ -20,6 +20,8 @@
 #include "TemporarySummon.h"
 #include "ThreatMgr.h"
 #include "Timer.h"
+#include "PlayerbotAI.h"
+#include "Player.h"
 
 bool LowManaTrigger::IsActive()
 {
@@ -247,7 +249,7 @@ bool AoeTrigger::IsActive()
 bool NoFoodTrigger::IsActive()
 {
     bool isRandomBot = sRandomPlayerbotMgr->IsRandomBot(bot);
-    if (isRandomBot && sPlayerbotAIConfig->freeFood)
+    if (isRandomBot && botAI->HasCheat(BotCheatMask::food))
         return false;
 
     return AI_VALUE2(std::vector<Item*>, "inventory items", "conjured food").empty();
@@ -256,7 +258,7 @@ bool NoFoodTrigger::IsActive()
 bool NoDrinkTrigger::IsActive()
 {
     bool isRandomBot = sRandomPlayerbotMgr->IsRandomBot(bot);
-    if (isRandomBot && sPlayerbotAIConfig->freeFood)
+    if (isRandomBot && botAI->HasCheat(BotCheatMask::food))
         return false;
 
     return AI_VALUE2(std::vector<Item*>, "inventory items", "conjured water").empty();
@@ -368,7 +370,7 @@ bool BoostTrigger::IsActive()
     return AI_VALUE(uint8, "balance") <= balance;
 }
 
-bool GenericBoostTrigger::IsActive() 
+bool GenericBoostTrigger::IsActive()
 {
     Unit* target = AI_VALUE(Unit*, "current target");
     if (target && target->ToPlayer())
@@ -376,15 +378,15 @@ bool GenericBoostTrigger::IsActive()
     return AI_VALUE(uint8, "balance") <= balance;
 }
 
-bool HealerShouldAttackTrigger::IsActive() 
+bool HealerShouldAttackTrigger::IsActive()
 {
     // nobody can help me
     if (botAI->GetNearGroupMemberCount(sPlayerbotAIConfig->sightDistance) <= 1)
         return true;
-    
+
     if (AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig->almostFullHealth)
         return false;
-    
+
     // special check for resto druid (dont remove tree of life frequently)
     if (bot->GetAura(33891))
     {
@@ -677,11 +679,54 @@ Value<Unit*>* BuffOnMainTankTrigger::GetTargetValue() { return context->GetValue
 
 bool AmmoCountTrigger::IsActive()
 {
-    if (bot->GetUInt32Value(PLAYER_AMMO_ID) != 0)  
+    if (bot->GetUInt32Value(PLAYER_AMMO_ID) != 0)
         return ItemCountTrigger::IsActive();  // Ammo already equipped
 
-    if (botAI->FindAmmo())  
+    if (botAI->FindAmmo())
         return true;  // Found ammo in inventory but not equipped
 
     return ItemCountTrigger::IsActive();
+}
+
+bool NewPetTrigger::IsActive()
+{
+    // Get the bot player object from the AI
+    Player* bot = botAI->GetBot();
+    if (!bot)
+        return false;
+
+    // Try to get the current pet; initialize guardian and GUID to null/empty
+    Pet* pet = bot->GetPet();
+    Guardian* guardian = nullptr;
+    ObjectGuid currentPetGuid = ObjectGuid::Empty;
+
+    // If bot has a pet, get its GUID
+    if (pet)
+    {
+        currentPetGuid = pet->GetGUID();
+    }
+    else
+    {
+        // If no pet, try to get a guardian pet and its GUID
+        guardian = bot->GetGuardianPet();
+        if (guardian)
+            currentPetGuid = guardian->GetGUID();
+    }
+
+    // If the current pet or guardian GUID has changed (including becoming empty), reset the trigger state
+    if (currentPetGuid != lastPetGuid)
+    {
+        triggered = false;
+        lastPetGuid = currentPetGuid;
+    }
+
+    // If there's a valid current pet/guardian (non-empty GUID) and we haven't triggered yet, activate trigger
+    if (currentPetGuid != ObjectGuid::Empty && !triggered)
+    {
+        triggered = true;
+        return true;
+    }
+
+    // Otherwise, do not activate
+    return false;
 }

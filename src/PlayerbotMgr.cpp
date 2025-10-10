@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "PlayerbotMgr.h"
@@ -38,8 +38,6 @@
 #include "WorldSessionMgr.h"
 #include "DatabaseEnv.h"        // Added for gender choice
 #include <algorithm>            // Added for gender choice
-#include "Log.h" // removes a long-standing crash (0xC0000005 ACCESS_VIOLATION)
-#include <shared_mutex> // removes a long-standing crash (0xC0000005 ACCESS_VIOLATION)
 
 class BotInitGuard
 {
@@ -477,7 +475,7 @@ void PlayerbotHolder::OnBotLogin(Player* const bot)
     }
 
     Player* master = botAI->GetMaster();
-	if (master)
+    if (master)
     {
         ObjectGuid masterGuid = master->GetGUID();
         if (master->GetGroup() && !master->GetGroup()->IsLeader(masterGuid))
@@ -501,7 +499,7 @@ void PlayerbotHolder::OnBotLogin(Player* const bot)
                 }
             }
 
-			// Don't disband alt groups when master goes away
+            // Don't disband alt groups when master goes away
             // Controlled by config
             if (sPlayerbotAIConfig->KeepAltsInGroup())
             {
@@ -1132,18 +1130,18 @@ std::vector<std::string> PlayerbotHolder::HandlePlayerbotCommand(char const* arg
         int8 gender = -1; // -1 = gender will be random
         if (genderArg)
         {
-        	std::string g = genderArg;
-        	std::transform(g.begin(), g.end(), g.begin(), ::tolower);
-        
-        	if (g == "male" || g == "0")
-        		gender = GENDER_MALE; // 0
-        	else if (g == "female" || g == "1")
-        		gender = GENDER_FEMALE; // 1
-        	else
-        	{
-        		messages.push_back("Unknown gender : " + g + " (male/female/0/1)");
-        		return messages;
-        	}
+            std::string g = genderArg;
+            std::transform(g.begin(), g.end(), g.begin(), ::tolower);
+
+            if (g == "male" || g == "0")
+                gender = GENDER_MALE; // 0
+            else if (g == "female" || g == "1")
+                gender = GENDER_FEMALE; // 1
+            else
+            {
+                messages.push_back("Unknown gender : " + g + " (male/female/0/1)");
+                return messages;
+            }
         } //end
 
         if (claz == 6 && master->GetLevel() < sWorld->getIntConfig(CONFIG_START_HEROIC_PLAYER_LEVEL))
@@ -1157,7 +1155,7 @@ std::vector<std::string> PlayerbotHolder::HandlePlayerbotCommand(char const* arg
         {
             // If the user requested a specific gender, skip any character that doesn't match.
             if (gender != -1 && GetOfflinePlayerGender(guid) != gender)
-                continue;			
+                continue;
             if (botLoading.find(guid) != botLoading.end())
                 continue;
             if (ObjectAccessor::FindConnectedPlayer(guid))
@@ -1728,70 +1726,21 @@ void PlayerbotsMgr::RemovePlayerBotData(ObjectGuid const& guid, bool is_AI)
 
 PlayerbotAI* PlayerbotsMgr::GetPlayerbotAI(Player* player)
 {
-    // if (!(sPlayerbotAIConfig->enabled) || !player)
-    // {
+    if (!(sPlayerbotAIConfig->enabled) || !player)
+    {
+        return nullptr;
+    }
+    // if (player->GetSession()->isLogingOut() || player->IsDuringRemoveFromWorld()) {
     //     return nullptr;
     // }
-    // // if (player->GetSession()->isLogingOut() || player->IsDuringRemoveFromWorld()) {
-    // //     return nullptr;
-    // // }
-    // auto itr = _playerbotsAIMap.find(player->GetGUID());
-    // if (itr != _playerbotsAIMap.end())
-    // {
-    //     if (itr->second->IsBotAI())
-    //         return reinterpret_cast<PlayerbotAI*>(itr->second);
-    // }
-	// 
-    // return nullptr;
-	
-	// removes a long-standing crash (0xC0000005 ACCESS_VIOLATION)
-    if (!player || !sPlayerbotAIConfig->enabled)
-        return nullptr;
-    
-    // First read the GUID into a local variable, but ONLY after the check!
-    ObjectGuid guid = player->GetGUID();           // <-- OK here, we know that player != nullptr
-    { 
-        std::shared_lock rlock(_aiMutex);
-        auto it = _playerbotsAIMap.find(guid);
-        if (it != _playerbotsAIMap.end() && it->second->IsBotAI())
-            return static_cast<PlayerbotAI*>(it->second);
-    }
-
-    // Transient state: NEVER break the master ⇄ bots relationship here.
-    if (!ObjectAccessor::FindPlayer(guid))    
+    auto itr = _playerbotsAIMap.find(player->GetGUID());
+    if (itr != _playerbotsAIMap.end())
     {
-        RemovePlayerbotAI(guid, /*removeMgrEntry=*/false);
-    }
-    return nullptr;
-}
-
-// removes a long-standing crash (0xC0000005 ACCESS_VIOLATION)
-PlayerbotAI* PlayerbotsMgr::GetPlayerbotAIByGuid(ObjectGuid guid)
-{
-    if (!sPlayerbotAIConfig->enabled)
-        return nullptr;
-
-    std::shared_lock rlock(_aiMutex);
-    auto it = _playerbotsAIMap.find(guid);
-    if (it != _playerbotsAIMap.end() && it->second->IsBotAI())
-        return static_cast<PlayerbotAI*>(it->second);
-    return nullptr;
-}
-
-void PlayerbotsMgr::RemovePlayerbotAI(ObjectGuid const& guid, bool removeMgrEntry /*= true*/)
-{
-    std::unique_lock wlock(_aiMutex);
-
-    if (auto it = _playerbotsAIMap.find(guid); it != _playerbotsAIMap.end())
-    {
-        delete it->second;
-        _playerbotsAIMap.erase(it);
-        LOG_DEBUG("playerbots", "Removed stale AI for GUID {}",
-                  static_cast<uint64>(guid.GetRawValue()));
+        if (itr->second->IsBotAI())
+            return reinterpret_cast<PlayerbotAI*>(itr->second);
     }
 
-        if (removeMgrEntry)
-       _playerbotsMgrMap.erase(guid);  // we NO longer touch the relation in a "soft" purge
+    return nullptr;
 }
 
 PlayerbotMgr* PlayerbotsMgr::GetPlayerbotMgr(Player* player)

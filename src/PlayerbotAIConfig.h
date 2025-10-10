@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #ifndef _PLAYERBOT_PLAYERbotAICONFIG_H
@@ -23,7 +23,8 @@ enum class BotCheatMask : uint32
     mana = 8,
     power = 16,
     raid = 32,
-    maxMask = 64
+    food = 64,
+    maxMask = 128
 };
 
 enum class HealingManaEfficiency : uint8
@@ -101,6 +102,17 @@ public:
     bool botAutologin;
     std::string randomBotMapsAsString;
     float probTeleToBankers;
+    bool enableWeightTeleToCityBankers;
+    int weightTeleToStormwind;
+    int weightTeleToIronforge;
+    int weightTeleToDarnassus;
+    int weightTeleToExodar;
+    int weightTeleToOrgrimmar;
+    int weightTeleToUndercity;
+    int weightTeleToThunderBluff;
+    int weightTeleToSilvermoonCity;
+    int weightTeleToShattrathCity;
+    int weightTeleToDalaran;
     std::vector<uint32> randomBotMaps;
     std::vector<uint32> randomBotQuestItems;
     std::vector<uint32> randomBotAccounts;
@@ -126,6 +138,12 @@ public:
     uint32 minRandomBotsPriceChangeInterval, maxRandomBotsPriceChangeInterval;
     uint32 disabledWithoutRealPlayerLoginDelay, disabledWithoutRealPlayerLogoutDelay;
     bool randomBotJoinLfg;
+
+    // Buff system
+    // Min group size to use Greater buffs (Paladin, Mage, Druid). Default: 3
+    int32 minBotsForGreaterBuff;
+    // Cooldown (seconds) between reagent-missing RP warnings, per bot & per buff. Default: 30
+    int32 rpWarningCooldown;
 
     // chat
     bool randomBotTalk;
@@ -249,7 +267,7 @@ public:
     uint32 randomBotAccountCount;
     bool randomBotRandomPassword;
     bool deleteRandomBotAccounts;
-    uint32 randomBotGuildCount;
+    uint32 randomBotGuildCount, randomBotGuildSizeMax;
     bool deleteRandomBotGuilds;
     std::vector<uint32> randomBotGuilds;
     std::vector<uint32> pvpProhibitedZoneIds;
@@ -333,12 +351,13 @@ public:
     bool autoPickTalents;
     bool autoUpgradeEquip;
     int32 hunterWolfPet;
+    int32 defaultPetStance;
+    int32 petChatCommandDebug;
     bool autoLearnTrainerSpells;
     bool autoDoQuests;
     bool enableNewRpgStrategy;
     std::unordered_map<NewRpgStatus, uint32> RpgStatusProbWeight;
     bool syncLevelWithPlayers;
-    bool freeFood;
     bool autoLearnQuestSpells;
     bool autoTeleportForLevel;
     bool randomBotGroupNearby;
@@ -372,6 +391,25 @@ public:
     int32 addClassCommand;
     int32 addClassAccountPoolSize;
     int32 maintenanceCommand;
+    bool altMaintenanceAttunementQs,
+            altMaintenanceBags,
+            altMaintenanceAmmo,
+            altMaintenanceFood,
+            altMaintenanceReagents,
+            altMaintenanceConsumables,
+            altMaintenancePotions,
+            altMaintenanceTalentTree,
+            altMaintenancePet,
+            altMaintenancePetTalents,
+            altMaintenanceClassSpells,
+            altMaintenanceAvailableSpells,
+            altMaintenanceSkills,
+            altMaintenanceReputation,
+            altMaintenanceSpecialSpells,
+            altMaintenanceMounts,
+            altMaintenanceGlyphs,
+            altMaintenanceKeyring,
+            altMaintenanceGemsEnchants;
     int32 autoGearCommand, autoGearCommandAltBots, autoGearQualityLimit, autoGearScoreLimit;
 
     uint32 useGroundMountAtMinLevel;

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #ifndef _PLAYERBOT_MOVEMENTACTIONS_H
@@ -292,6 +292,36 @@ public:
     MoveFromGroupAction(PlayerbotAI* botAI, std::string const name = "move from group") : MovementAction(botAI, name) {}
 
     bool Execute(Event event) override;
+};
+
+class MoveAwayFromCreatureAction : public MovementAction
+{
+public:
+    MoveAwayFromCreatureAction(PlayerbotAI* botAI, std::string name, uint32 creatureId, float range, bool alive = true)
+        : MovementAction(botAI, name), creatureId(creatureId), range(range), alive(alive) {}
+
+    bool Execute(Event event) override;
+    bool isPossible() override;
+
+private:
+    uint32 creatureId;
+    float range;
+    bool alive;
+};
+
+class MoveAwayFromPlayerWithDebuffAction : public MovementAction
+{
+public:
+    MoveAwayFromPlayerWithDebuffAction(PlayerbotAI* botAI, std::string name, uint32 spellId, float range)
+        : MovementAction(botAI, name), spellId(spellId), range(range) {}
+
+    bool Execute(Event event) override;
+    bool isPossible() override;
+
+private:
+    uint32 spellId;
+    float range;
+    bool alive;
 };
 
 #endif

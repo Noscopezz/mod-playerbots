@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "FrostMageStrategy.h"
@@ -61,7 +61,8 @@ void FrostMageStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     // Pet/Defensive triggers
     triggers.push_back(new TriggerNode("no pet", NextAction::array(0, new NextAction("summon water elemental", 30.0f), nullptr)));
-    triggers.push_back(new TriggerNode("has pet", NextAction::array(0, new NextAction("toggle pet spell", 29.5f), nullptr)));
+    triggers.push_back(new TriggerNode("has pet", NextAction::array(0, new NextAction("toggle pet spell", 60.0f), nullptr)));
+    triggers.push_back(new TriggerNode("new pet", NextAction::array(0, new NextAction("set pet stance", 60.0f), nullptr)));
     triggers.push_back(new TriggerNode("medium health", NextAction::array(0, new NextAction("ice barrier", 29.0f), nullptr)));
     triggers.push_back(new TriggerNode("being attacked", NextAction::array(0, new NextAction("ice barrier", 29.0f), nullptr)));
 
@@ -78,5 +79,5 @@ void FrostMageStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("frost nova on target", NextAction::array(0,
                                                            new NextAction("deep freeze", 19.0f),
                                                            new NextAction("frostbolt", 18.0f), nullptr)));
-      
+
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "BossAuraTriggers.h"
@@ -15,7 +15,7 @@ bool BossFireResistanceTrigger::IsActive()
 {
     // Check boss and it is alive
     Unit* boss = AI_VALUE2(Unit*, "find target", bossName);
-    if (!boss || !boss->IsAlive())
+    if (!boss || !boss->IsAlive() || boss->IsFriendlyTo(bot))
         return false;
 
     // Check if bot is paladin
@@ -68,7 +68,7 @@ bool BossFrostResistanceTrigger::IsActive()
 {
     // Check boss and it is alive
     Unit* boss = AI_VALUE2(Unit*, "find target", bossName);
-    if (!boss || !boss->IsAlive())
+    if (!boss || !boss->IsAlive() || boss->IsFriendlyTo(bot))
         return false;
 
     // Check if bot is paladin
@@ -121,7 +121,7 @@ bool BossNatureResistanceTrigger::IsActive()
 {
     // Check boss and it is alive
     Unit* boss = AI_VALUE2(Unit*, "find target", bossName);
-    if (!boss || !boss->IsAlive())
+    if (!boss || !boss->IsAlive() || boss->IsFriendlyTo(bot))
         return false;
 
     // Check if bot is alive
@@ -176,7 +176,7 @@ bool BossShadowResistanceTrigger::IsActive()
 {
     // Check boss and it is alive
     Unit* boss = AI_VALUE2(Unit*, "find target", bossName);
-    if (!boss || !boss->IsAlive())
+    if (!boss || !boss->IsAlive() || boss->IsFriendlyTo(bot))
         return false;
 
     // Check if bot is paladin

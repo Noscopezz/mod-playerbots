@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #ifndef _PLAYERBOT_PLAYERbotAI_H
@@ -276,7 +276,7 @@ enum BotRoles : uint8
 
 enum HUNTER_TABS
 {
-    HUNTER_TAB_BEASTMASTER,
+    HUNTER_TAB_BEASTMASTERY,
     HUNTER_TAB_MARKSMANSHIP,
     HUNTER_TAB_SURVIVAL,
 };
@@ -285,12 +285,12 @@ enum ROGUE_TABS
 {
     ROGUE_TAB_ASSASSINATION,
     ROGUE_TAB_COMBAT,
-    ROGUE_TAB_SUBTLETY
+    ROGUE_TAB_SUBTLETY,
 };
 
 enum PRIEST_TABS
 {
-    PRIEST_TAB_DISIPLINE,
+    PRIEST_TAB_DISCIPLINE,
     PRIEST_TAB_HOLY,
     PRIEST_TAB_SHADOW,
 };
@@ -332,7 +332,7 @@ enum PALADIN_TABS
 
 enum WARLOCK_TABS
 {
-    WARLOCK_TAB_AFFLICATION,
+    WARLOCK_TAB_AFFLICTION,
     WARLOCK_TAB_DEMONOLOGY,
     WARLOCK_TAB_DESTRUCTION,
 };
@@ -423,13 +423,15 @@ public:
     static bool IsCaster(Player* player, bool bySpec = false);
     static bool IsRangedDps(Player* player, bool bySpec = false);
     static bool IsCombo(Player* player);
+    static bool IsBotMainTank(Player* player);
     static bool IsMainTank(Player* player);
     static uint32 GetGroupTankNum(Player* player);
-    bool IsAssistTank(Player* player);
-    bool IsAssistTankOfIndex(Player* player, int index);
-    bool IsHealAssistantOfIndex(Player* player, int index);
-    bool IsRangedDpsAssistantOfIndex(Player* player, int index);
+    static bool IsAssistTank(Player* player);
+    static bool IsAssistTankOfIndex(Player* player, int index);
+    static bool IsHealAssistantOfIndex(Player* player, int index);
+    static bool IsRangedDpsAssistantOfIndex(Player* player, int index);
     bool HasAggro(Unit* unit);
+    static int32 GetAssistTankIndex(Player* player);
     int32 GetGroupSlotIndex(Player* player);
     int32 GetRangedIndex(Player* player);
     int32 GetClassIndex(Player* player, uint8 cls);
@@ -552,7 +554,7 @@ public:
     bool IsSafe(Player* player);
     bool IsSafe(WorldObject* obj);
     ChatChannelSource GetChatChannelSource(Player* bot, uint32 type, std::string channelName);
-    
+
     bool CheckLocationDistanceByLevel(Player* player, const WorldLocation &loc, bool fromStartUp = false);
 
     bool HasCheat(BotCheatMask mask)

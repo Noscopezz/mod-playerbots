@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "GenericWarlockNonCombatStrategy.h"
@@ -79,6 +79,7 @@ void GenericWarlockNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& tr
 {
     NonCombatStrategy::InitTriggers(triggers);
     triggers.push_back(new TriggerNode("has pet", NextAction::array(0, new NextAction("toggle pet spell", 60.0f), nullptr)));
+    triggers.push_back(new TriggerNode("new pet", NextAction::array(0, new NextAction("set pet stance", 60.0f), nullptr)));
     triggers.push_back(new TriggerNode("no pet", NextAction::array(0, new NextAction("fel domination", 30.0f), nullptr)));
     triggers.push_back(new TriggerNode("no soul shard", NextAction::array(0, new NextAction("create soul shard", 60.0f), nullptr)));
     triggers.push_back(new TriggerNode("too many soul shards", NextAction::array(0, new NextAction("destroy soul shard", 60.0f), nullptr)));

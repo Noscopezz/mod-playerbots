@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU GPL v2 license, you may redistribute it
- * and/or modify it under version 2 of the License, or (at your option), any later version.
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license, you may redistribute it
+ * and/or modify it under version 3 of the License, or (at your option), any later version.
  */
 
 #include "CombatStrategy.h"
@@ -22,8 +22,10 @@ void CombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("combat stuck", NextAction::array(0, new NextAction("reset", 1.0f), nullptr)));
     triggers.push_back(new TriggerNode("not facing target",
                                        NextAction::array(0, new NextAction("set facing", ACTION_MOVE + 7), nullptr)));
-    triggers.push_back(
-        new TriggerNode("pet attack", NextAction::array(0, new NextAction("pet attack", 40.0f), nullptr)));
+    // triggers.push_back(new TriggerNode("pet attack", NextAction::array(0, new NextAction("pet attack", 40.0f), nullptr)));
+    // The pet-attack trigger is commented out because it was forcing the bot's pet to attack, overriding stay and follow commands.
+    // Pets will automatically attack the bot's enemy if they are in "defensive" or "aggressive"
+    // stance, or if the master issues an attack command.
     // triggers.push_back(new TriggerNode("combat long stuck", NextAction::array(0, new NextAction("hearthstone", 0.9f),
     // new NextAction("repop", 0.8f), nullptr)));
 }
