@@ -30,7 +30,7 @@ bool ExternalEventHelper::ParseChatCommand(std::string const command, Player* ow
             return true;
     }
 
-    if (!ChatHelper::parseableItem(command))
+    if (!ChatHelper::parseable(command))
         return false;
 
     HandleCommand("c", command, owner);

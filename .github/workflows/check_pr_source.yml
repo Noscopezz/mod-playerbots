@@ -2,7 +2,6 @@ name: Enforce test-staging → master
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
     branches:
       - master
       - test-staging
