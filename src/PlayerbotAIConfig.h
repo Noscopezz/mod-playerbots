@@ -8,11 +8,14 @@
 
 #include <mutex>
 #include <unordered_map>
+#include <set>
+#include <vector>
+#include <map>
+#include <algorithm>
+#include <string>
 
-#include "Common.h"
 #include "DBCEnums.h"
 #include "SharedDefines.h"
-#include "Talentspec.h"
 
 enum class BotCheatMask : uint32
 {
@@ -39,21 +42,20 @@ enum class HealingManaEfficiency : uint8
 
 enum NewRpgStatus : int
 {
-    RPG_STATUS_START = 0,
-    // Going to far away place
-    RPG_GO_GRIND = 0,
-    RPG_GO_CAMP = 1,
+    //Initial Status
+    RPG_IDLE = 0,
+    RPG_GO_GRIND = 1,
+    RPG_GO_CAMP = 2,
     // Exploring nearby
-    RPG_WANDER_RANDOM = 2,
-    RPG_WANDER_NPC = 3,
+    RPG_WANDER_RANDOM = 3,
+    RPG_WANDER_NPC = 4,
     // Do Quest (based on quest status)
-    RPG_DO_QUEST = 4,
+    RPG_DO_QUEST = 5,
     // Travel
-    RPG_TRAVEL_FLIGHT = 5,
+
+    RPG_TRAVEL_FLIGHT = 6,
     // Taking a break
-    RPG_REST = 6,
-    // Initial status
-    RPG_IDLE = 7,
+    RPG_REST = 7,
     RPG_STATUS_END = 8
 };
 
@@ -62,11 +64,11 @@ enum NewRpgStatus : int
 class PlayerbotAIConfig
 {
 public:
-    PlayerbotAIConfig(){};
-    static PlayerbotAIConfig* instance()
+    static PlayerbotAIConfig& instance()
     {
         static PlayerbotAIConfig instance;
-        return &instance;
+
+        return instance;
     }
 
     bool Initialize();
@@ -96,6 +98,7 @@ public:
     std::set<uint32> aoeAvoidSpellWhitelist;
     bool tellWhenAvoidAoe;
     std::set<uint32> disallowedGameObjects;
+    std::set<uint32> attunementQuests;
 
     uint32 openGoSpell;
     bool randomBotAutologin;
@@ -132,7 +135,7 @@ public:
     uint32 minRandomBotChangeStrategyTime, maxRandomBotChangeStrategyTime;
     uint32 minRandomBotReviveTime, maxRandomBotReviveTime;
     uint32 minRandomBotTeleportInterval, maxRandomBotTeleportInterval;
-    uint32 permanantlyInWorldTime;
+    uint32 permanentlyInWorldTime;
     uint32 minRandomBotPvpTime, maxRandomBotPvpTime;
     uint32 randomBotsPerInterval;
     uint32 minRandomBotsPriceChangeInterval, maxRandomBotsPriceChangeInterval;
@@ -144,6 +147,10 @@ public:
     int32 minBotsForGreaterBuff;
     // Cooldown (seconds) between reagent-missing RP warnings, per bot & per buff. Default: 30
     int32 rpWarningCooldown;
+
+    // Professions
+    bool enableFishingWithMaster;
+    float fishingDistanceFromMaster, fishingDistance, endFishingWithMaster;
 
     // chat
     bool randomBotTalk;
@@ -269,7 +276,6 @@ public:
     bool deleteRandomBotAccounts;
     uint32 randomBotGuildCount, randomBotGuildSizeMax;
     bool deleteRandomBotGuilds;
-    std::vector<uint32> randomBotGuilds;
     std::vector<uint32> pvpProhibitedZoneIds;
     std::vector<uint32> pvpProhibitedAreaIds;
     bool fastReactInBG;
@@ -347,7 +353,7 @@ public:
     bool syncQuestWithPlayer;
     bool syncQuestForPlayer;
     bool dropObsoleteQuests;
-    std::string autoTrainSpells;
+    bool allowLearnTrainerSpells;
     bool autoPickTalents;
     bool autoUpgradeEquip;
     int32 hunterWolfPet;
@@ -418,10 +424,10 @@ public:
     uint32 useFastFlyMountAtMinLevel;
 
     // stagger flightpath takeoff
-    uint32 delayMin;
-    uint32 delayMax;
-    uint32 gapMs;
-    uint32 gapJitterMs;
+    uint32 botTaxiDelayMin;
+    uint32 botTaxiDelayMax;
+    uint32 botTaxiGapMs;
+    uint32 botTaxiGapJitterMs;
 
     std::string const GetTimestampStr();
     bool hasLog(std::string const fileName)
@@ -446,6 +452,16 @@ public:
     bool IsRestrictedHealerDPSMap(uint32 mapId) const;
 
     std::vector<uint32> excludedHunterPetFamilies;
+
+private:
+    PlayerbotAIConfig() = default;
+    ~PlayerbotAIConfig() = default;
+
+    PlayerbotAIConfig(const PlayerbotAIConfig&) = delete;
+    PlayerbotAIConfig& operator=(const PlayerbotAIConfig&) = delete;
+
+    PlayerbotAIConfig(PlayerbotAIConfig&&) = delete;
+    PlayerbotAIConfig& operator=(PlayerbotAIConfig&&) = delete;
 };
 
 #define sPlayerbotAIConfig PlayerbotAIConfig::instance()
