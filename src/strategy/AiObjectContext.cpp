@@ -29,6 +29,7 @@
 #include "WorldPacketTriggerContext.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 <<<<<<< HEAD:src/Bot/Engine/AiObjectContext.cpp
 #include "Ai/Dungeon/DungeonStrategyContext.h"
 #include "Ai/Dungeon/WotlkDungeonActionContext.h"
@@ -69,6 +70,8 @@
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 =======
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
+=======
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 #include "dungeons/DungeonStrategyContext.h"
 #include "dungeons/wotlk/WotlkDungeonActionContext.h"
 #include "dungeons/wotlk/WotlkDungeonTriggerContext.h"
@@ -95,7 +98,10 @@
 #include "raids/icecrown/RaidIccTriggerContext.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master):src/strategy/AiObjectContext.cpp
+=======
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 =======
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 =======
@@ -162,6 +168,7 @@ void AiObjectContext::BuildSharedActionContexts(SharedNamedObjectContextList<Act
     actionContexts.Add(new RaidKarazhanActionContext());
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 <<<<<<< HEAD:src/Bot/Engine/AiObjectContext.cpp
     actionContexts.Add(new RaidGruulsLairActionContext());
     actionContexts.Add(new RaidMagtheridonActionContext());
@@ -171,6 +178,9 @@ void AiObjectContext::BuildSharedActionContexts(SharedNamedObjectContextList<Act
 =======
     actionContexts.Add(new RaidNaxxActionContext());
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master):src/strategy/AiObjectContext.cpp
+=======
+    actionContexts.Add(new RaidNaxxActionContext());
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 =======
     actionContexts.Add(new RaidNaxxActionContext());
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
@@ -211,6 +221,7 @@ void AiObjectContext::BuildSharedTriggerContexts(SharedNamedObjectContextList<Tr
     triggerContexts.Add(new RaidKarazhanTriggerContext());
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 <<<<<<< HEAD:src/Bot/Engine/AiObjectContext.cpp
     triggerContexts.Add(new RaidGruulsLairTriggerContext());
     triggerContexts.Add(new RaidMagtheridonTriggerContext());
@@ -220,6 +231,9 @@ void AiObjectContext::BuildSharedTriggerContexts(SharedNamedObjectContextList<Tr
 =======
     triggerContexts.Add(new RaidNaxxTriggerContext());
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master):src/strategy/AiObjectContext.cpp
+=======
+    triggerContexts.Add(new RaidNaxxTriggerContext());
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 =======
     triggerContexts.Add(new RaidNaxxTriggerContext());
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
