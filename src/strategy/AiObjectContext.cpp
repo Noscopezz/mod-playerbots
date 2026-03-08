@@ -27,6 +27,7 @@
 #include "WarriorAiObjectContext.h"
 #include "WorldPacketActionContext.h"
 #include "WorldPacketTriggerContext.h"
+<<<<<<< HEAD
 <<<<<<< HEAD:src/Bot/Engine/AiObjectContext.cpp
 #include "Ai/Dungeon/DungeonStrategyContext.h"
 #include "Ai/Dungeon/WotlkDungeonActionContext.h"
@@ -63,6 +64,8 @@
 #include "Ai/Raid/Icecrown/RaidIccActionContext.h"
 #include "Ai/Raid/Icecrown/RaidIccTriggerContext.h"
 =======
+=======
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 #include "dungeons/DungeonStrategyContext.h"
 #include "dungeons/wotlk/WotlkDungeonActionContext.h"
 #include "dungeons/wotlk/WotlkDungeonTriggerContext.h"
@@ -87,7 +90,10 @@
 #include "raids/onyxia/RaidOnyxiaTriggerContext.h"
 #include "raids/icecrown/RaidIccActionContext.h"
 #include "raids/icecrown/RaidIccTriggerContext.h"
+<<<<<<< HEAD
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master):src/strategy/AiObjectContext.cpp
+=======
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
 
 SharedNamedObjectContextList<Strategy> AiObjectContext::sharedStrategyContexts;
 SharedNamedObjectContextList<Action> AiObjectContext::sharedActionContexts;
@@ -148,6 +154,7 @@ void AiObjectContext::BuildSharedActionContexts(SharedNamedObjectContextList<Act
     actionContexts.Add(new RaidMcActionContext());
     actionContexts.Add(new RaidBwlActionContext());
     actionContexts.Add(new RaidKarazhanActionContext());
+<<<<<<< HEAD
 <<<<<<< HEAD:src/Bot/Engine/AiObjectContext.cpp
     actionContexts.Add(new RaidGruulsLairActionContext());
     actionContexts.Add(new RaidMagtheridonActionContext());
@@ -157,6 +164,9 @@ void AiObjectContext::BuildSharedActionContexts(SharedNamedObjectContextList<Act
 =======
     actionContexts.Add(new RaidNaxxActionContext());
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master):src/strategy/AiObjectContext.cpp
+=======
+    actionContexts.Add(new RaidNaxxActionContext());
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
     actionContexts.Add(new RaidOsActionContext());
     actionContexts.Add(new RaidEoEActionContext());
     actionContexts.Add(new RaidVoAActionContext());
@@ -189,6 +199,7 @@ void AiObjectContext::BuildSharedTriggerContexts(SharedNamedObjectContextList<Tr
     triggerContexts.Add(new RaidMcTriggerContext());
     triggerContexts.Add(new RaidBwlTriggerContext());
     triggerContexts.Add(new RaidKarazhanTriggerContext());
+<<<<<<< HEAD
 <<<<<<< HEAD:src/Bot/Engine/AiObjectContext.cpp
     triggerContexts.Add(new RaidGruulsLairTriggerContext());
     triggerContexts.Add(new RaidMagtheridonTriggerContext());
@@ -198,6 +209,9 @@ void AiObjectContext::BuildSharedTriggerContexts(SharedNamedObjectContextList<Tr
 =======
     triggerContexts.Add(new RaidNaxxTriggerContext());
 >>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master):src/strategy/AiObjectContext.cpp
+=======
+    triggerContexts.Add(new RaidNaxxTriggerContext());
+>>>>>>> parent of 21804486 (Merge branch 'mod-playerbots:master' into master)
     triggerContexts.Add(new RaidOsTriggerContext());
     triggerContexts.Add(new RaidEoETriggerContext());
     triggerContexts.Add(new RaidVoATriggerContext());
