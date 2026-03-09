@@ -1381,95 +1381,60 @@ int IccFestergutGroupPositionAction::CalculatePositionIndex(Group* group)
         }
     }
 
-    // Sort GUIDs for consistent ordering
+    // Sort GUIDs for consistent ordering across all bots
     std::sort(healerGuids.begin(), healerGuids.end());
     std::sort(rangedDpsGuids.begin(), rangedDpsGuids.end());
     std::sort(hunterGuids.begin(), hunterGuids.end());
 
     ObjectGuid botGuid = bot->GetGUID();
 
-    // Find bot's position among healers
+    // Find which group this bot belongs to
     auto healerIt = std::find(healerGuids.begin(), healerGuids.end(), botGuid);
+    auto rangedIt = std::find(rangedDpsGuids.begin(), rangedDpsGuids.end(), botGuid);
+    auto hunterIt = std::find(hunterGuids.begin(), hunterGuids.end(), botGuid);
+
+    // Calculate global position index considering group constraints
+    const int HEALER_ROWS = 2;
+    const int COLUMNS_PER_ROW = 6;
+
+    // Healers: rows 0-1 (first two rows)
     if (healerIt != healerGuids.end())
     {
-        int healerIndex = std::distance(healerGuids.begin(), healerIt);
-        int totalHealers = healerGuids.size();
+        int healerIndex = static_cast<int>(std::distance(healerGuids.begin(), healerIt));
 
-        // Healers in first two rows, distributed evenly
-        int healersPerRow = (totalHealers + 1) / 2;  // Round up for first row
-
-        if (healerIndex < healersPerRow)
+        // Ensure healers only occupy first two rows
+        if (healerIndex < HEALER_ROWS * COLUMNS_PER_ROW)
         {
-            // First row of healers (positions 0-5)
             return healerIndex;
         }
-        else
-        {
-            // Second row of healers (positions 6-11)
-            return healerIndex - healersPerRow + 6;
-        }
+
+        // If too many healers, overflow to later rows but keep them early
+        return healerIndex;  // Will be in row = index / 6, col = index % 6
     }
 
-    // Find bot's position among non-hunter ranged DPS
-    auto rangedIt = std::find(rangedDpsGuids.begin(), rangedDpsGuids.end(), botGuid);
+    // Non-hunter ranged DPS: can be any row (no strict restriction)
     if (rangedIt != rangedDpsGuids.end())
     {
-        int rangedIndex = std::distance(rangedDpsGuids.begin(), rangedIt);
-        int totalHealers = healerGuids.size();
+        int rangedIndex = static_cast<int>(std::distance(rangedDpsGuids.begin(), rangedIt));
 
-        // Non-hunter ranged DPS fill remaining spots in healer rows first
-        int healerSpotsUsed = totalHealers;
-        int remainingSpotsInHealerRows = 12 - healerSpotsUsed;  // 2 rows of 6 spots each
-
-        if (rangedIndex < remainingSpotsInHealerRows)
-        {
-            // Fill remaining spots in healer rows
-            if (healerSpotsUsed < 6)
-            {
-                // Fill remaining spots in first row
-                return healerSpotsUsed + rangedIndex;
-            }
-            else
-            {
-                // Fill remaining spots in second row
-                int spotsInSecondRow = healerSpotsUsed - 6;
-                int remainingInSecondRow = 6 - spotsInSecondRow;
-
-                if (rangedIndex < remainingInSecondRow)
-                {
-                    return 6 + spotsInSecondRow + rangedIndex;
-                }
-                else
-                {
-                    // Move to third row
-                    return 12 + (rangedIndex - remainingInSecondRow);
-                }
-            }
-        }
-        else
-        {
-            // Start new rows for remaining ranged DPS
-            return 12 + (rangedIndex - remainingSpotsInHealerRows);
-        }
+        // Start after all healers, then fill remaining spots
+        return static_cast<int>(healerGuids.size()) + rangedIndex;
     }
 
-    // Find bot's position among hunters
-    auto hunterIt = std::find(hunterGuids.begin(), hunterGuids.end(), botGuid);
+    // Hunters: never in 1st row (row 0)
     if (hunterIt != hunterGuids.end())
     {
-        int hunterIndex = std::distance(hunterGuids.begin(), hunterIt);
-        int totalHealers = healerGuids.size();
-        int totalRangedDps = rangedDpsGuids.size();
+        int hunterIndex = static_cast<int>(std::distance(hunterGuids.begin(), hunterIt));
 
-        // Hunters start after healers and non-hunter ranged DPS
-        // But ensure they're at least in the second row (position 6+)
-        int basePosition = totalHealers + totalRangedDps + hunterIndex;
+        // Each row holds up to COLUMNS_PER_ROW hunters
+        // Skip first row completely: start at offset HEALER_ROWS * COLUMNS_PER_ROW + totalRangedDps
 
-        // If position would be in first row (0-5), move to second row minimum
-        if (basePosition < 6)
-            basePosition = 6 + hunterIndex;
+        // Calculate how many non-healer positions are before this hunter position
+        int baseOffset = static_cast<int>(healerGuids.size()) + static_cast<int>(rangedDpsGuids.size());
 
-        return basePosition;
+        // Each row of hunters starts at positions that are multiples of COLUMNS_PER_ROW
+        // To avoid row 0, skip first column slots reserved for healers/non-hunters
+        return baseOffset + hunterIndex;
     }
 
     return -1;
