@@ -268,9 +268,10 @@ public:
     bool Execute(Event event) override;
 
     void MarkBossWithSkull(Unit* boss);
-    bool PositionMainTankAndMelee(Unit *boss);
+    bool PositionMainTankAndMelee(Unit* boss, Unit* smallOoze = nullptr);
     bool HandleAssistTankPositioning(Unit* boss);
-    bool HandleBigOozePositioning(Unit* boss);
+    Unit* FindAssignedBigOoze(Unit* boss, std::vector<Unit*>& bigOozes);
+    bool HandleBigOozeKiting(Unit* bigOoze);
 };
 
 class IccRotfaceGroupPositionAction : public AttackAction
