@@ -6,6 +6,19 @@
 #ifndef _PLAYERBOT_PLAYERbotAICONFIG_H
 #define _PLAYERBOT_PLAYERbotAICONFIG_H
 
+// ── Compatibility max_race fix ──────────────────────────────────────────────────────
+// MAX_RACES / RACEMASK_ALLIANCE were removed from SharedDefines.h in newer
+// AzerothCore builds. Define fallbacks so this module still compiles.
+#ifndef MAX_RACES
+#define MAX_RACES 12  // WotLK: races 1-11, sentinel at 12
+#endif
+
+#ifndef RACEMASK_ALLIANCE
+// Human(1) Dwarf(3) NightElf(4) Gnome(7) Draenei(11)  →  bits 0,2,3,6,10
+#define RACEMASK_ALLIANCE 0x44D
+#endif
+// ─────────────────────────────────────────────────────────────────────────────
+
 #include <mutex>
 #include <unordered_map>
 #include <set>

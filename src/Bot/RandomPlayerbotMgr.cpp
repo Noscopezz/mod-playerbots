@@ -45,7 +45,6 @@
 #include "Unit.h"
 #include "World.h"
 #include "Cell.h"
-#include "GridNotifiers.h"
 // Required for Cell because of poor AC implementation
 #include "CellImpl.h"
 // Required for GridNotifiers because of poor AC implementation
