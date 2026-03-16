@@ -262,17 +262,10 @@ public:
     bool IsActive() override;
 };
 
-class IccGunshipTeleportAllyTrigger : public Trigger
+class IccGunshipTeleportTrigger : public Trigger
 {
 public:
-    IccGunshipTeleportAllyTrigger(PlayerbotAI* botAI) : Trigger(botAI, "icc gunship teleport ally") {}
-    bool IsActive() override;
-};
-
-class IccGunshipTeleportHordeTrigger : public Trigger
-{
-public:
-    IccGunshipTeleportHordeTrigger(PlayerbotAI* botAI) : Trigger(botAI, "icc gunship teleport horde") {}
+    IccGunshipTeleportTrigger(PlayerbotAI* botAI) : Trigger(botAI, "icc gunship teleport") {}
     bool IsActive() override;
 };
 

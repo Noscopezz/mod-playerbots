@@ -18,8 +18,7 @@ public:
         creators["icc rotting frost giant tank position"] = &RaidIccTriggerContext::icc_rotting_frost_giant_tank_position;
         creators["icc in cannon"] = &RaidIccTriggerContext::icc_in_cannon;
         creators["icc gunship cannon near"] = &RaidIccTriggerContext::icc_gunship_cannon_near;
-        creators["icc gunship teleport ally"] = &RaidIccTriggerContext::icc_gunship_teleport_ally;
-        creators["icc gunship teleport horde"] = &RaidIccTriggerContext::icc_gunship_teleport_horde;
+        creators["icc gunship teleport"] = &RaidIccTriggerContext::icc_gunship_teleport;
 
         creators["icc dbs"] = &RaidIccTriggerContext::icc_dbs;
         creators["icc dbs main tank rune of blood"] = &RaidIccTriggerContext::icc_dbs_main_tank_rune_of_blood;
@@ -83,8 +82,7 @@ private:
     static Trigger* icc_rotting_frost_giant_tank_position(PlayerbotAI* ai) { return new IccRottingFrostGiantTankPositionTrigger(ai); }
     static Trigger* icc_in_cannon(PlayerbotAI* ai) { return new IccInCannonTrigger(ai); }
     static Trigger* icc_gunship_cannon_near(PlayerbotAI* ai) { return new IccGunshipCannonNearTrigger(ai); }
-    static Trigger* icc_gunship_teleport_ally(PlayerbotAI* ai) { return new IccGunshipTeleportAllyTrigger(ai); }
-    static Trigger* icc_gunship_teleport_horde(PlayerbotAI* ai) { return new IccGunshipTeleportHordeTrigger(ai); }
+    static Trigger* icc_gunship_teleport(PlayerbotAI* ai) { return new IccGunshipTeleportTrigger(ai); }
 
     static Trigger* icc_dbs(PlayerbotAI* ai) { return new IccDbsTrigger(ai); }
     static Trigger* icc_dbs_main_tank_rune_of_blood(PlayerbotAI* ai) { return new IccDbsMainTankRuneOfBloodTrigger(ai); }

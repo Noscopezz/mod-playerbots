@@ -28,11 +28,8 @@ void RaidIccStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back( new TriggerNode("icc in cannon",
         { NextAction("icc cannon fire", ACTION_RAID+5) }));
 
-    triggers.push_back(new TriggerNode("icc gunship teleport ally",
-        { NextAction("icc gunship teleport ally", ACTION_RAID + 4) }));
-
-    triggers.push_back(new TriggerNode("icc gunship teleport horde",
-        { NextAction("icc gunship teleport horde", ACTION_RAID + 4) }));
+    triggers.push_back(new TriggerNode("icc gunship teleport",
+        { NextAction("icc gunship teleport", ACTION_RAID + 4)}));
 
     //DBS
     triggers.push_back(new TriggerNode("icc dbs",

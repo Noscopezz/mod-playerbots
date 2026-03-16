@@ -21,8 +21,7 @@ public:
         creators["icc rotting frost giant tank position"] = &RaidIccActionContext::icc_rotting_frost_giant_tank_position;
         creators["icc cannon fire"] = &RaidIccActionContext::icc_cannon_fire;
         creators["icc gunship enter cannon"] = &RaidIccActionContext::icc_gunship_enter_cannon;
-        creators["icc gunship teleport ally"] = &RaidIccActionContext::icc_gunship_teleport_ally;
-        creators["icc gunship teleport horde"] = &RaidIccActionContext::icc_gunship_teleport_horde;
+        creators["icc gunship teleport"] = &RaidIccActionContext::icc_gunship_teleport;
 
         creators["icc dbs tank position"] = &RaidIccActionContext::icc_dbs_tank_position;
         creators["icc adds dbs"] = &RaidIccActionContext::icc_adds_dbs;
@@ -84,8 +83,7 @@ private:
     static Action* icc_rotting_frost_giant_tank_position(PlayerbotAI* ai) { return new IccRottingFrostGiantTankPositionAction(ai); }
     static Action* icc_cannon_fire(PlayerbotAI* ai) { return new IccCannonFireAction(ai); }
     static Action* icc_gunship_enter_cannon(PlayerbotAI* ai) { return new IccGunshipEnterCannonAction(ai); }
-    static Action* icc_gunship_teleport_ally(PlayerbotAI* ai) { return new IccGunshipTeleportAllyAction(ai); }
-    static Action* icc_gunship_teleport_horde(PlayerbotAI* ai) { return new IccGunshipTeleportHordeAction(ai); }
+    static Action* icc_gunship_teleport(PlayerbotAI* ai) { return new IccGunshipTeleportAction(ai); }
 
     static Action* icc_dbs_tank_position(PlayerbotAI* ai) { return new IccDbsTankPositionAction(ai); }
     static Action* icc_adds_dbs(PlayerbotAI* ai) { return new IccAddsDbsAction(ai); }

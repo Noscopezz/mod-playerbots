@@ -692,7 +692,7 @@ bool IccRottingFrostGiantTankPositionAction::Execute(Event /*event*/)
     return false;  // No movement needed
 }
 
-//Gunship
+// Gunship Battle
 bool IccCannonFireAction::Execute(Event /*event*/)
 {
     Unit* vehicleBase = bot->GetVehicleBase();
@@ -705,31 +705,30 @@ bool IccCannonFireAction::Execute(Event /*event*/)
     if (!target)
         return false;
 
-    // Try to cast Incinerating Blast if we have enough energy
-    const float energyThreshold = 90.0f;
-    if (vehicleBase->GetPower(POWER_ENERGY) >= energyThreshold)
+    // Use Incinerating Blast when we have enough energy, otherwise Cannon Blast
+    static constexpr float ENERGY_THRESHOLD = 90.0f;
+    if (vehicleBase->GetPower(POWER_ENERGY) >= ENERGY_THRESHOLD)
     {
-        const uint32 blastSpellId = AI_VALUE2(uint32, "vehicle spell id", "incinerating blast");
+        uint32 const blastSpellId = AI_VALUE2(uint32, "vehicle spell id", "incinerating blast");
         if (TryCastCannonSpell(blastSpellId, target, vehicleBase))
             return true;
     }
 
-    // Otherwise just use regular Cannon Blast
-    const uint32 cannonSpellId = AI_VALUE2(uint32, "vehicle spell id", "cannon blast");
+    uint32 const cannonSpellId = AI_VALUE2(uint32, "vehicle spell id", "cannon blast");
     return TryCastCannonSpell(cannonSpellId, target, vehicleBase);
 }
 
 Unit* IccCannonFireAction::FindValidCannonTarget()
 {
-    const GuidVector attackers = AI_VALUE(GuidVector, "possible targets no los");
+    GuidVector const attackers = AI_VALUE(GuidVector, "possible targets no los");
 
-    for (auto const& attackerGuid : attackers)
+    for (ObjectGuid const& attackerGuid : attackers)
     {
         Unit* unit = botAI->GetUnit(attackerGuid);
         if (!unit)
             continue;
 
-        for (const uint32 entry : availableTargetsGS)
+        for (uint32 const entry : availableTargetsGS)
         {
             if (unit->GetEntry() == entry)
                 return unit;
@@ -741,11 +740,11 @@ Unit* IccCannonFireAction::FindValidCannonTarget()
 
 bool IccCannonFireAction::TryCastCannonSpell(uint32 spellId, Unit* target, Unit* vehicleBase)
 {
-    static constexpr uint32 cooldownMs = 1000;
+    static constexpr uint32 COOLDOWN_MS = 1000;
 
     if (botAI->CanCastVehicleSpell(spellId, target) && botAI->CastVehicleSpell(spellId, target))
     {
-        vehicleBase->AddSpellCooldown(spellId, 0, cooldownMs);
+        vehicleBase->AddSpellCooldown(spellId, 0, COOLDOWN_MS);
         return true;
     }
 
@@ -754,7 +753,7 @@ bool IccCannonFireAction::TryCastCannonSpell(uint32 spellId, Unit* target, Unit*
 
 bool IccGunshipEnterCannonAction::Execute(Event /*event*/)
 {
-    // Do not switch vehicles if already in one
+    // Never switch vehicles while already in one
     if (bot->GetVehicle())
         return false;
 
@@ -767,17 +766,16 @@ bool IccGunshipEnterCannonAction::Execute(Event /*event*/)
 
 Unit* IccGunshipEnterCannonAction::FindBestAvailableCannon()
 {
-    const uint32 validCannonEntries[] = {NPC_CANNONA, NPC_CANNONH};
     Unit* bestVehicle = nullptr;
 
-    const GuidVector npcs = AI_VALUE(GuidVector, "nearest vehicles");
-    for (auto const& npcGuid : npcs)
+    GuidVector const npcs = AI_VALUE(GuidVector, "nearest vehicles");
+    for (ObjectGuid const& npcGuid : npcs)
     {
         Unit* vehicleBase = botAI->GetUnit(npcGuid);
-        if (!IsValidCannon(vehicleBase, validCannonEntries))
+        if (!IsValidCannon(vehicleBase))
             continue;
 
-        // Choose the closest valid cannon
+        // Prefer the closest valid cannon
         if (!bestVehicle || bot->GetExactDist(vehicleBase) < bot->GetExactDist(bestVehicle))
             bestVehicle = vehicleBase;
     }
@@ -785,39 +783,25 @@ Unit* IccGunshipEnterCannonAction::FindBestAvailableCannon()
     return bestVehicle;
 }
 
-bool IccGunshipEnterCannonAction::IsValidCannon(Unit* vehicle, const uint32 validEntries[])
+bool IccGunshipEnterCannonAction::IsValidCannon(Unit* vehicle)
 {
     if (!vehicle)
         return false;
 
-    // Must be selectable
     if (vehicle->HasUnitFlag(UNIT_FLAG_NOT_SELECTABLE))
         return false;
 
-    // Must be friendly
     if (!vehicle->IsFriendlyTo(bot))
         return false;
 
-    // Must have available seats
     if (!vehicle->GetVehicleKit() || !vehicle->GetVehicleKit()->GetAvailableSeatCount())
         return false;
 
-    // Must be one of the cannon entries
-    const uint32 entry = vehicle->GetEntry();
-    bool isValidEntry = false;
-    for (size_t i = 0; i < 2; ++i)
-    {  // 2 is the size of validEntries
-        if (entry == validEntries[i])
-        {
-            isValidEntry = true;
-            break;
-        }
-    }
-
-    if (!isValidEntry)
+    uint32 const entry = vehicle->GetEntry();
+    if (entry != NPC_CANNONA && entry != NPC_CANNONH)
         return false;
 
-    // Must not have these auras (frozen or disabled)
+    // Frozen or disabled cannon — skip
     if (vehicle->HasAura(69704) || vehicle->HasAura(69705))
         return false;
 
@@ -826,7 +810,7 @@ bool IccGunshipEnterCannonAction::IsValidCannon(Unit* vehicle, const uint32 vali
 
 bool IccGunshipEnterCannonAction::EnterVehicle(Unit* vehicleBase, bool moveIfFar)
 {
-    const float dist = bot->GetDistance(vehicleBase);
+    float const dist = bot->GetDistance(vehicleBase);
 
     if (dist > INTERACTION_DISTANCE && !moveIfFar)
         return false;
@@ -834,156 +818,108 @@ bool IccGunshipEnterCannonAction::EnterVehicle(Unit* vehicleBase, bool moveIfFar
     if (dist > INTERACTION_DISTANCE)
         return MoveTo(vehicleBase);
 
-    // Prepare for entering vehicle
     botAI->RemoveShapeshift();
     bot->GetMotionMaster()->Clear();
     bot->StopMoving();
 
-    // Enter the vehicle
     vehicleBase->HandleSpellClick(bot);
 
     if (!bot->IsOnVehicle(vehicleBase))
         return false;
 
-    // Dismount because bots can enter vehicle while mounted
+    // Dismount — bots can enter a vehicle while still mounted
     WorldPacket emptyPacket;
     bot->GetSession()->HandleCancelMountAuraOpcode(emptyPacket);
 
     return true;
 }
 
-bool IccGunshipTeleportAllyAction::Execute(Event /*event*/)
+// ---------------------------------------------------------------------------
+// IccGunshipTeleportAction
+//
+// Single action that works for both the Alliance and Horde ships.  The ship
+// we are currently on is determined by which cannon type is friendly — this
+// makes the action cross-faction safe: a Horde player in an Alliance raid
+// will see NPC_CANNONA as friendly and follow Alliance-side logic.
+// ---------------------------------------------------------------------------
+
+IccGunshipTeleportAction::GunshipSide IccGunshipTeleportAction::DetectShip() const
+{
+    Unit* cannonA = bot->FindNearestCreature(NPC_CANNONA, 100.0f);
+    if (cannonA && cannonA->IsFriendlyTo(bot))
+        return GunshipSide::ALLY;
+
+    Unit* cannonH = bot->FindNearestCreature(NPC_CANNONH, 100.0f);
+    if (cannonH && cannonH->IsFriendlyTo(bot))
+        return GunshipSide::HORDE;
+
+    return GunshipSide::NONE;
+}
+
+bool IccGunshipTeleportAction::Execute(Event /*event*/)
 {
     static constexpr float MAX_WAITING_DISTANCE = 45.0f;
     static constexpr float MAX_ATTACK_DISTANCE = 15.0f;
-    static constexpr uint8_t SKULL_ICON_INDEX = 7;
+    static constexpr uint8 SKULL_ICON_INDEX = 7;
 
-    // Find the Battle-Mage boss
-    Unit* boss = AI_VALUE2(Unit*, "find target", "kor'kron battle-mage");
+    GunshipSide const side = DetectShip();
+    if (side == GunshipSide::NONE)
+        return false;
 
-    // Check if we need to remove skull icon when boss is dead
+    char const* bossName = (side == GunshipSide::ALLY) ? "kor'kron battle-mage" : "skybreaker sorcerer";
+    Position const& waitPos = (side == GunshipSide::ALLY) ? ICC_GUNSHIP_TELEPORT_ALLY2 : ICC_GUNSHIP_TELEPORT_HORDE2;
+    Position const& attackPos = (side == GunshipSide::ALLY) ? ICC_GUNSHIP_TELEPORT_ALLY : ICC_GUNSHIP_TELEPORT_HORDE;
+
+    Unit* boss = AI_VALUE2(Unit*, "find target", bossName);
+
     CleanupSkullIcon(SKULL_ICON_INDEX);
 
-    // If no boss found or boss is dead or not casting, check waiting position
     if (!boss || !boss->IsAlive() || !boss->HasUnitState(UNIT_STATE_CASTING))
     {
-        // If we're too far from waiting position, go there
-        if (bot->GetExactDist2d(ICC_GUNSHIP_TELEPORT_ALLY2) > MAX_WAITING_DISTANCE)
-            return TeleportTo(ICC_GUNSHIP_TELEPORT_ALLY2);
+        if (bot->GetExactDist2d(waitPos) > MAX_WAITING_DISTANCE)
+            return TeleportTo(waitPos);
     }
     else if (boss->HasUnitState(UNIT_STATE_CASTING) && boss->FindCurrentSpellBySpellId(SPELL_BELOW_ZERO) &&
              boss->IsAlive())
     {
-        // Mark the boss with skull icon
         UpdateBossSkullIcon(boss, SKULL_ICON_INDEX);
 
-        // Teleport non-tank bots to attack position if not already there
-        if (!botAI->IsAssistTank(bot) && bot->GetExactDist2d(ICC_GUNSHIP_TELEPORT_ALLY) > MAX_ATTACK_DISTANCE)
-            return TeleportTo(ICC_GUNSHIP_TELEPORT_ALLY);
+        if (!botAI->IsAssistTank(bot) && bot->GetExactDist2d(attackPos) > MAX_ATTACK_DISTANCE)
+            return TeleportTo(attackPos);
     }
 
     return false;
 }
 
-bool IccGunshipTeleportAllyAction::TeleportTo(const Position& position)
+bool IccGunshipTeleportAction::TeleportTo(Position const& position)
 {
     return bot->TeleportTo(bot->GetMapId(), position.GetPositionX(), position.GetPositionY(), position.GetPositionZ(),
                            bot->GetOrientation());
 }
 
-void IccGunshipTeleportAllyAction::CleanupSkullIcon(uint8_t SKULL_ICON_INDEX)
+void IccGunshipTeleportAction::CleanupSkullIcon(uint8 skullIconIndex)
 {
-    if (Group* group = bot->GetGroup())
-    {
-        const ObjectGuid currentSkullTarget = group->GetTargetIcon(SKULL_ICON_INDEX);
+    Group* group = bot->GetGroup();
+    if (!group)
+        return;
 
-        if (!currentSkullTarget.IsEmpty())
-        {
-            Unit* skullTarget = ObjectAccessor::GetUnit(*bot, currentSkullTarget);
+    ObjectGuid const currentSkullTarget = group->GetTargetIcon(skullIconIndex);
+    if (currentSkullTarget.IsEmpty())
+        return;
 
-            if (!skullTarget || !skullTarget->IsAlive())
-            {
-                // Target is dead or doesn't exist, remove icon
-                group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), ObjectGuid::Empty);
-            }
-        }
-    }
+    Unit* skullTarget = ObjectAccessor::GetUnit(*bot, currentSkullTarget);
+    if (!skullTarget || !skullTarget->IsAlive())
+        group->SetTargetIcon(skullIconIndex, bot->GetGUID(), ObjectGuid::Empty);
 }
 
-void IccGunshipTeleportAllyAction::UpdateBossSkullIcon(Unit* boss, uint8_t SKULL_ICON_INDEX)
+void IccGunshipTeleportAction::UpdateBossSkullIcon(Unit* boss, uint8 skullIconIndex)
 {
-    if (Group* group = bot->GetGroup())
-    {
-        if (group->GetTargetIcon(SKULL_ICON_INDEX) != boss->GetGUID())
-            group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), boss->GetGUID());
-    }
-}
+    Group* group = bot->GetGroup();
+    if (!group)
+        return;
 
-bool IccGunshipTeleportHordeAction::Execute(Event /*event*/)
-{
-    static constexpr float MAX_WAITING_DISTANCE = 45.0f;
-    static constexpr float MAX_ATTACK_DISTANCE = 15.0f;
-    static constexpr uint8_t SKULL_ICON_INDEX = 7;
-
-    // Find the Sorcerer boss
-    Unit* boss = AI_VALUE2(Unit*, "find target", "skybreaker sorcerer");
-
-    // Check if we need to remove skull icon when boss is dead
-    CleanupSkullIcon(SKULL_ICON_INDEX);
-
-    // If no boss found or boss is dead or not casting, check waiting position
-    if (!boss || !boss->IsAlive() || !boss->HasUnitState(UNIT_STATE_CASTING))
-    {
-        // If we're too far from waiting position, go there
-        if (bot->GetExactDist2d(ICC_GUNSHIP_TELEPORT_HORDE2) > MAX_WAITING_DISTANCE)
-            return TeleportTo(ICC_GUNSHIP_TELEPORT_HORDE2);
-    }
-    else if (boss->HasUnitState(UNIT_STATE_CASTING) && boss->FindCurrentSpellBySpellId(SPELL_BELOW_ZERO) &&
-             boss->IsAlive())
-    {
-        // Mark the boss with skull icon
-        UpdateBossSkullIcon(boss, SKULL_ICON_INDEX);
-
-        // Teleport non-tank bots to attack position if not already there
-        if (!botAI->IsAssistTank(bot) && bot->GetExactDist2d(ICC_GUNSHIP_TELEPORT_HORDE) > MAX_ATTACK_DISTANCE)
-            return TeleportTo(ICC_GUNSHIP_TELEPORT_HORDE);
-    }
-
-    return false;
-}
-
-bool IccGunshipTeleportHordeAction::TeleportTo(const Position& position)
-{
-    return bot->TeleportTo(bot->GetMapId(), position.GetPositionX(), position.GetPositionY(), position.GetPositionZ(),
-                           bot->GetOrientation());
-}
-
-void IccGunshipTeleportHordeAction::CleanupSkullIcon(uint8_t SKULL_ICON_INDEX)
-{
-    if (Group* group = bot->GetGroup())
-    {
-        const ObjectGuid currentSkullTarget = group->GetTargetIcon(SKULL_ICON_INDEX);
-
-        if (!currentSkullTarget.IsEmpty())
-        {
-            Unit* skullTarget = ObjectAccessor::GetUnit(*bot, currentSkullTarget);
-
-            if (!skullTarget || !skullTarget->IsAlive())
-            {
-                // Target is dead or doesn't exist, remove icon
-                group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), ObjectGuid::Empty);
-            }
-        }
-    }
-}
-
-void IccGunshipTeleportHordeAction::UpdateBossSkullIcon(Unit* boss, uint8_t SKULL_ICON_INDEX)
-{
-    if (Group* group = bot->GetGroup())
-    {
-        if (group->GetTargetIcon(SKULL_ICON_INDEX) != boss->GetGUID())
-            group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), boss->GetGUID());
-    }
+    if (group->GetTargetIcon(skullIconIndex) != boss->GetGUID())
+        group->SetTargetIcon(skullIconIndex, bot->GetGUID(), boss->GetGUID());
 }
 
 //DBS

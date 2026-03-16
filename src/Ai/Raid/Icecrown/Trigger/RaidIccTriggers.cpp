@@ -91,34 +91,23 @@ bool IccGunshipCannonNearTrigger::IsActive()
     return true;
 }
 
-bool IccGunshipTeleportAllyTrigger::IsActive()
+bool IccGunshipTeleportTrigger::IsActive()
 {
-    Unit* boss = bot->FindNearestCreature(NPC_HIGH_OVERLORD_SAURFANG, 100.0f);
-    if (!boss || !boss->IsInWorld() || boss->IsDuringRemoveFromWorld())
-        return false;
+    // The teleport mechanic is only needed when the gunship battle is active.
+    // We detect which ship we are on by checking which enemy boss is present:
+    //   - Saurfang hostile  => we are on the Alliance ship
+    //   - Muradin hostile   => we are on the Horde ship
+    // Using the hostile boss (not cannon friendliness) avoids conflicting with
+    // the cannon-near trigger that fires on the same condition.
+    Unit* saurfang = bot->FindNearestCreature(NPC_HIGH_OVERLORD_SAURFANG, 100.0f);
+    if (saurfang && saurfang->IsAlive() && saurfang->IsHostileTo(bot))
+        return true;
 
-    if (!boss->IsAlive())
-        return false;
+    Unit* muradin = bot->FindNearestCreature(NPC_MURADIN_BRONZEBEARD, 100.0f);
+    if (muradin && muradin->IsAlive() && muradin->IsHostileTo(bot))
+        return true;
 
-    if (!boss->IsHostileTo(bot))
-        return false;
-
-    return true;
-}
-
-bool IccGunshipTeleportHordeTrigger::IsActive()
-{
-    Unit* boss = bot->FindNearestCreature(NPC_MURADIN_BRONZEBEARD, 100.0f);
-    if (!boss || !boss->IsInWorld() || boss->IsDuringRemoveFromWorld())
-        return false;
-
-    if (!boss->IsAlive())
-        return false;
-
-    if (!boss->IsHostileTo(bot))
-        return false;
-
-    return true;
+    return false;
 }
 
 //DBS

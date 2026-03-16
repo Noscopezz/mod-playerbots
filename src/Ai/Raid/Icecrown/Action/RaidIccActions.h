@@ -156,13 +156,14 @@ public:
     bool Execute(Event event) override;
 };
 
+// Gunship Battle
 class IccCannonFireAction : public Action
 {
 public:
-    IccCannonFireAction(PlayerbotAI* botAI, std::string const name = "icc cannon fire")
-        : Action(botAI, name) {}
+    IccCannonFireAction(PlayerbotAI* botAI, std::string const name = "icc cannon fire") : Action(botAI, name) {}
     bool Execute(Event event) override;
 
+private:
     Unit* FindValidCannonTarget();
     bool TryCastCannonSpell(uint32 spellId, Unit* target, Unit* vehicleBase);
 };
@@ -174,33 +175,31 @@ public:
         : MovementAction(botAI, name) {}
     bool Execute(Event event) override;
 
-    bool EnterVehicle(Unit* vehicleBase, bool moveIfFar);
+private:
     Unit* FindBestAvailableCannon();
-    bool IsValidCannon(Unit* vehicle, const uint32 validEntries[]);
+    bool IsValidCannon(Unit* vehicle);
+    bool EnterVehicle(Unit* vehicleBase, bool moveIfFar);
 };
 
-class IccGunshipTeleportAllyAction : public AttackAction
+class IccGunshipTeleportAction : public AttackAction
 {
 public:
-    IccGunshipTeleportAllyAction(PlayerbotAI* botAI, std::string const name = "icc gunship teleport ally")
+    IccGunshipTeleportAction(PlayerbotAI* botAI, std::string const name = "icc gunship teleport")
         : AttackAction(botAI, name) {}
     bool Execute(Event event) override;
 
-    bool TeleportTo(const Position& position);
-    void CleanupSkullIcon(uint8_t SKULL_ICON_INDEX);
-    void UpdateBossSkullIcon(Unit* boss, uint8_t SKULL_ICON_INDEX);
-};
+private:
+    enum class GunshipSide
+    {
+        NONE,
+        ALLY,
+        HORDE
+    };
 
-class IccGunshipTeleportHordeAction : public AttackAction
-{
-public:
-    IccGunshipTeleportHordeAction(PlayerbotAI* botAI, std::string const name = "icc gunship teleport horde")
-        : AttackAction(botAI, name) {}
-    bool Execute(Event event) override;
-
-    bool TeleportTo(const Position& position);
-    void CleanupSkullIcon(uint8_t SKULL_ICON_INDEX);
-    void UpdateBossSkullIcon(Unit* boss, uint8_t SKULL_ICON_INDEX);
+    GunshipSide DetectShip() const;
+    bool TeleportTo(Position const& position);
+    void CleanupSkullIcon(uint8 skullIconIndex);
+    void UpdateBossSkullIcon(Unit* boss, uint8 skullIconIndex);
 };
 
 //DBS
