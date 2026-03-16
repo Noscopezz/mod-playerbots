@@ -3103,15 +3103,57 @@ Position IccPutricideAvoidMalleableGooAction::CalculateIncrementalMove(const Pos
                     target.GetPositionZ());
 }
 
-// BPC
+//BPC
 bool IccBpcKelesethTankAction::Execute(Event /*event*/)
 {
-    if (!botAI->IsAssistTank(bot))
-        return false;
-
-    // Handle boss positioning
     Unit* boss = AI_VALUE2(Unit*, "find target", "prince keleseth");
     if (!boss)
+        return false;
+
+    // ---- New configurable movement/teleport logic relative to ICC_BPC_CENTER_POSITION ----
+    // These are local adjustable parameters (edit values as needed)
+    static float CENTER_MOVE_THRESHOLD = 40.0f;  // distance threshold (yards) to trigger movement toward center
+    static float MOVE_INCREMENT = 5.0f;          // movement increment (yards)
+    static float Z_TELEPORT_THRESHOLD = 6.0f;    // Z-axis tolerance (yards) to trigger teleport fix
+
+    // Teleport Z-axis back to center-level if the bot is significantly off in Z
+    float centerZ = ICC_BPC_CENTER_POSITION.GetPositionZ();
+    if (std::abs(bot->GetPositionZ() - centerZ) > Z_TELEPORT_THRESHOLD)
+    {
+        // Preserve X/Y and orientation, only fix Z to avoid getting stuck below/above arena level
+        bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), centerZ, bot->GetOrientation());
+        return false;
+    }
+
+    // If bot is too far from the center position, move toward it in increments until within threshold
+    float distToCenter = bot->GetExactDist2d(ICC_BPC_CENTER_POSITION);
+    if (distToCenter > CENTER_MOVE_THRESHOLD)
+    {
+        // Calculate direction vector toward center
+        float dirX = ICC_BPC_CENTER_POSITION.GetPositionX() - bot->GetPositionX();
+        float dirY = ICC_BPC_CENTER_POSITION.GetPositionY() - bot->GetPositionY();
+        float length = std::sqrt(dirX * dirX + dirY * dirY);
+
+        if (length > 0.001f)
+        {
+            dirX /= length;
+            dirY /= length;
+
+            // Move only as far as needed to get within threshold or up to MOVE_INCREMENT
+            float needed = distToCenter - CENTER_MOVE_THRESHOLD;
+            float step = std::min(MOVE_INCREMENT, needed);
+
+            float moveX = bot->GetPositionX() + dirX * step;
+            float moveY = bot->GetPositionY() + dirY * step;
+            float moveZ = bot->GetPositionZ();
+
+            // Attempt incremental move toward center
+            MoveTo(bot->GetMapId(), moveX, moveY, moveZ, false, false, false, false, MovementPriority::MOVEMENT_COMBAT);
+            return false;
+        }
+    }
+    // ---- End of new center / Z-fix logic ----
+    if (!botAI->IsAssistTank(bot))
         return false;
 
     bool isBossVictim = false;
@@ -3496,7 +3538,7 @@ bool IccBpcKineticBombAction::Execute(Event /*event*/)
     // Static constants
     static constexpr float MAX_HEIGHT_DIFF = 20.0f;
     static constexpr float SAFE_HEIGHT = 371.16473f;
-    static constexpr float TELEPORT_HEIGHT = 366.16473f;
+    static constexpr float TELEPORT_HEIGHT = 367.16473f;
     static constexpr std::array<uint32_t, 4> KINETIC_BOMB_ENTRIES = {NPC_KINETIC_BOMB1, NPC_KINETIC_BOMB2,
                                                                      NPC_KINETIC_BOMB3, NPC_KINETIC_BOMB4};
 
