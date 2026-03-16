@@ -586,8 +586,22 @@ class IccSindragosaFrostBombAction : public MovementAction
 {
 public:
     IccSindragosaFrostBombAction(PlayerbotAI* botAI)
-            : MovementAction(botAI, "icc sindragosa frost bomb") {}
+        : MovementAction(botAI, "icc sindragosa frost bomb") {}
     bool Execute(Event event) override;
+
+private:
+    struct FrostBombContext
+    {
+        Unit* marker = nullptr;
+        std::vector<Unit*> tombs;
+    };
+    bool CollectContext(FrostBombContext& ctx) const;
+    int ResolveGroupIndex(Group* group) const;
+    std::vector<Unit*> SelectTombs(std::vector<Unit*> const& tombs, int groupIndex, std::vector<Position> const& groupPositions) const;
+    Unit* SelectBestTomb(std::vector<Unit*> const& candidates) const;
+    bool HandleRtiMarking(Group* group, int groupIndex, std::vector<Unit*> const& myTombs);
+    static std::map<ObjectGuid, int> s_groupAssignments;
+    static std::vector<ObjectGuid> s_allGroupGuids;
 };
 
 class IccSindragosaTankSwapPositionAction : public AttackAction

@@ -5757,21 +5757,32 @@ bool IccValithriaDreamCloudAction::Execute(Event /*event*/)
 }
 
 // Sindragosa
+
 bool IccSindragosaGroupPositionAction::Execute(Event /*event*/)
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "sindragosa");
-    if (!boss || boss->HasUnitMovementFlag(MOVEMENTFLAG_DISABLE_GRAVITY))
+    if (!boss)
+        return false;
+
+    // Block positioning only during the pre-combat intro fly-in.
+    // Once Sindragosa is in combat the air phase is handled separately,
+    // so ground bots must still be allowed to pre-position.
+    if (boss->HasUnitMovementFlag(MOVEMENTFLAG_DISABLE_GRAVITY) && !boss->IsInCombat())
         return false;
 
     Aura* aura = botAI->GetAura("mystic buffet", bot, false, true);
-
     if (aura && aura->GetStackAmount() >= 6 && botAI->IsMainTank(bot))
         return false;
 
-    if (botAI->IsTank(bot) && boss->GetVictim() == bot)
+    // Route tanks to tank positioning.
+    // At pull GetVictim() may still be nullptr, so also check IsMainTank so the
+    // tank is not incorrectly sent to the melee stack before aggro is established.
+    bool const isTankingBoss = botAI->IsTank(bot) && (boss->GetVictim() == bot || botAI->IsMainTank(bot));
+    if (isTankingBoss)
         return HandleTankPositioning(boss);
 
-    if (boss && boss->GetVictim() != bot)
+    // Everyone else: boss is not targeting this bot
+    if (boss->GetVictim() != bot)
         return HandleNonTankPositioning();
 
     return false;
@@ -5779,97 +5790,81 @@ bool IccSindragosaGroupPositionAction::Execute(Event /*event*/)
 
 bool IccSindragosaGroupPositionAction::HandleTankPositioning(Unit* boss)
 {
-    float distBossToCenter = boss->GetExactDist2d(ICC_SINDRAGOSA_CENTER_POSITION);
-    float distToTankPos = bot->GetExactDist2d(ICC_SINDRAGOSA_TANK_POSITION);
-    float targetOrientation = M_PI / 2;  // We want boss to face east
-    float currentOrientation = boss->GetOrientation();
+    float const distBossToCenter = boss->GetExactDist2d(ICC_SINDRAGOSA_CENTER_POSITION);
+    float const distToTankPos = bot->GetExactDist2d(ICC_SINDRAGOSA_TANK_POSITION);
 
-    // Normalize both orientations to 0-2π range
-    currentOrientation = fmod(currentOrientation + 2 * M_PI, 2 * M_PI);
-    targetOrientation = fmod(targetOrientation + 2 * M_PI, 2 * M_PI);
-
+    // Compute how far the boss orientation deviates from east (PI/2)
+    float const targetOrientation = fmod(float(M_PI) / 2.0f + 2.0f * float(M_PI), 2.0f * float(M_PI));
+    float const currentOrientation = fmod(boss->GetOrientation() + 2.0f * float(M_PI), 2.0f * float(M_PI));
     float orientationDiff = currentOrientation - targetOrientation;
 
-    // Normalize the difference to be between -PI and PI
-    while (orientationDiff > M_PI)
-        orientationDiff -= 2 * M_PI;
-    while (orientationDiff < -M_PI)
-        orientationDiff += 2 * M_PI;
+    // Clamp difference to [-PI, PI]
+    if (orientationDiff > float(M_PI))
+        orientationDiff -= 2.0f * float(M_PI);
+    else if (orientationDiff < -float(M_PI))
+        orientationDiff += 2.0f * float(M_PI);
 
-    // Stage 1: Move boss to center if too far
-    if (boss && boss->GetVictim() == bot && distBossToCenter > 16.0f && distToTankPos <= 20.0f)
+    // Stage 1: Drag boss toward the arena centre when it has drifted too far
+    if (distBossToCenter > 16.0f && distToTankPos <= 20.0f)
     {
-        // Calculate direction vector from boss to center
-        float dirX = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionX() - boss->GetPositionX();
-        float dirY = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionY() - boss->GetPositionY();
+        float const dirX = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionX() - boss->GetPositionX();
+        float const dirY = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionY() - boss->GetPositionY();
 
-        // Move 10 yards beyond center in the same direction
-        float moveX = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionX() + (dirX / distBossToCenter) * 4.0f;
-        float moveY = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionY() + (dirY / distBossToCenter) * 4.0f;
+        // Step 4 yards past centre to keep the boss moving through it
+        float const moveX = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionX() + (dirX / distBossToCenter) * 4.0f;
+        float const moveY = ICC_SINDRAGOSA_CENTER_POSITION.GetPositionY() + (dirY / distBossToCenter) * 4.0f;
 
         return MoveTo(bot->GetMapId(), moveX, moveY, boss->GetPositionZ(), false, false, false, false,
                       MovementPriority::MOVEMENT_FORCED, true, false);
     }
 
-    // Stage 2: Move to tank position if too far
-    if (boss && boss->GetVictim() == bot && distToTankPos > 10.0f)
+    // Stage 2: Walk toward the designated tank position
+    if (distToTankPos > 10.0f)
     {
-        Position botPos = bot->GetPosition();
-        Position tankPos = ICC_SINDRAGOSA_TANK_POSITION;
+        Position const& botPos = bot->GetPosition();
+        Position const& tankPos = ICC_SINDRAGOSA_TANK_POSITION;
 
-        float dx = tankPos.GetPositionX() - botPos.GetPositionX();
-        float dy = tankPos.GetPositionY() - botPos.GetPositionY();
+        float const dx = tankPos.GetPositionX() - botPos.GetPositionX();
+        float const dy = tankPos.GetPositionY() - botPos.GetPositionY();
+        float const distance = std::hypot(dx, dy);
 
-        float distance = std::sqrt(dx * dx + dy * dy);
-        float step = 1.0f;
-
-        // Normalize and scale direction vector
-        float scale = step / distance;
-
-        float targetX = botPos.GetPositionX() + dx * scale;
-        float targetY = botPos.GetPositionY() + dy * scale;
+        // Advance one yard at a time for smooth pathing
+        float const scale = 1.0f / distance;
+        float const targetX = botPos.GetPositionX() + dx * scale;
+        float const targetY = botPos.GetPositionY() + dy * scale;
 
         return MoveTo(bot->GetMapId(), targetX, targetY, bot->GetPositionZ(), false, false, false, true,
                       MovementPriority::MOVEMENT_COMBAT, true, false);
     }
 
-    // Stage 3: Adjust orientation when in position
-    if (boss && boss->GetVictim() == bot && std::abs(orientationDiff) > 0.15f)
+    // Stage 3: Arc around the boss to correct its facing toward east
+    if (std::abs(orientationDiff) > 0.15f)
     {
-        // Move in an arc (circle) north or south around the boss until the orientation matches
-        float currentX = bot->GetPositionX();
-        float currentY = bot->GetPositionY();
-        float centerX = boss->GetPositionX();
-        float centerY = boss->GetPositionY();
-        float radius = std::max(2.0f, bot->GetExactDist2d(centerX, centerY));  // keep at least 2 yards from boss
+        float const centerX = boss->GetPositionX();
+        float const centerY = boss->GetPositionY();
+        float const radius = std::max(2.0f, bot->GetExactDist2d(centerX, centerY));
 
-        // Calculate current angle from boss to bot
-        float angle = atan2(currentY - centerY, currentX - centerX);
+        float angle = atan2(bot->GetPositionY() - centerY, bot->GetPositionX() - centerX);
 
-        // Determine direction: negative diff = move counterclockwise (north), positive = clockwise (south)
-        float arcStep = 0.125f;  // radians per move, adjust for smoothness
-        if (orientationDiff < 0)
-            angle += arcStep;  // move north (counterclockwise)
-        else
-            angle -= arcStep;  // move south (clockwise)
+        // Negative diff → step counterclockwise (north); positive → clockwise (south)
+        static constexpr float ARC_STEP = 0.125f;
+        angle += (orientationDiff < 0) ? ARC_STEP : -ARC_STEP;
 
-        // Calculate new position on the arc
-        float moveX = centerX + radius * cos(angle);
-        float moveY = centerY + radius * sin(angle);
+        float const moveX = centerX + radius * cos(angle);
+        float const moveY = centerY + radius * sin(angle);
 
         return MoveTo(bot->GetMapId(), moveX, moveY, bot->GetPositionZ(), false, false, false, false,
                       MovementPriority::MOVEMENT_FORCED, true, false);
     }
 
-    // Stage 4: Adjust Y-axis position if too far from tank position
-    float yDiff = std::abs(bot->GetPositionY() - ICC_SINDRAGOSA_TANK_POSITION.GetPositionY());
-    if (boss && boss->GetVictim() == bot && yDiff > 2.0f)
+    // Stage 4: Fine-tune Y-axis alignment with the tank position
+    float const yDiff = std::abs(bot->GetPositionY() - ICC_SINDRAGOSA_TANK_POSITION.GetPositionY());
+    if (yDiff > 2.0f)
     {
-        Position botPos = bot->GetPosition();
-        Position tankPos = ICC_SINDRAGOSA_TANK_POSITION;
+        Position const& botPos = bot->GetPosition();
+        Position const& tankPos = ICC_SINDRAGOSA_TANK_POSITION;
 
-        // Only adjust Y position, keep X and Z the same
-        float newY = botPos.GetPositionY() + (tankPos.GetPositionY() > botPos.GetPositionY() ? 1.0f : -1.0f);
+        float const newY = botPos.GetPositionY() + (tankPos.GetPositionY() > botPos.GetPositionY() ? 1.0f : -1.0f);
 
         return MoveTo(bot->GetMapId(), botPos.GetPositionX(), newY, botPos.GetPositionZ(), false, false, false, false,
                       MovementPriority::MOVEMENT_FORCED, true, false);
@@ -5891,61 +5886,55 @@ bool IccSindragosaGroupPositionAction::HandleNonTankPositioning()
         Player* member = itr->GetSource();
         if (!member || !member->IsAlive())
             continue;
+
         raidMembers.push_back(member);
     }
 
-    // Count members without aura 1111
-    size_t membersWithoutAura = 0;
-    for (Player* member : raidMembers)
-    {
-        if (!botAI->GetAura("mystic buffet", member))
-            membersWithoutAura++;
-    }
-
-    // Calculate percentage without aura
-    size_t totalMembers = raidMembers.size();
+    uint32 const totalMembers = static_cast<uint32>(raidMembers.size());
     if (totalMembers == 0)
         return false;
 
-    double percentageWithoutAura = static_cast<double>(membersWithoutAura) / totalMembers;
-    bool raidClear = (percentageWithoutAura >= 0.6);  // 60% or more don't have aura 1111
+    // Count members currently free of Mystic Buffet
+    uint32 membersWithoutAura = 0;
+    for (Player* member : raidMembers)
+    {
+        if (!botAI->GetAura("mystic buffet", member))
+            ++membersWithoutAura;
+    }
+
+    // Raid is considered "clear" when 60 % or more lack the debuff stack
+    float const percentageWithoutAura = static_cast<float>(membersWithoutAura) / static_cast<float>(totalMembers);
+    bool const raidClear = (percentageWithoutAura >= 0.6f);
 
     if (raidClear && botAI->IsTank(bot))
     {
-        static const std::array<uint32, 4> tombEntries = {NPC_TOMB1, NPC_TOMB2, NPC_TOMB3, NPC_TOMB4};
-        const GuidVector tombGuids = AI_VALUE(GuidVector, "possible targets no los");
+        static constexpr std::array<uint32, 4> TombEntries = {NPC_TOMB1, NPC_TOMB2, NPC_TOMB3, NPC_TOMB4};
+        GuidVector const tombGuids = AI_VALUE(GuidVector, "possible targets no los");
 
         Unit* nearestTomb = nullptr;
         float minDist = 150.0f;
 
-        for (const auto entry : tombEntries)
+        for (uint32 const entry : TombEntries)
         {
             for (auto const& guid : tombGuids)
             {
-                if (Unit* unit = botAI->GetUnit(guid))
+                Unit* unit = botAI->GetUnit(guid);
+                if (!unit || unit->GetEntry() != entry || !unit->IsAlive())
+                    continue;
+
+                float const dist = bot->GetDistance(unit);
+                if (dist < minDist)
                 {
-                    if (unit->GetEntry() == entry && unit->IsAlive())
-                    {
-                        float dist = bot->GetDistance(unit);
-                        if (dist < minDist)
-                        {
-                            minDist = dist;
-                            nearestTomb = unit;
-                        }
-                    }
+                    minDist = dist;
+                    nearestTomb = unit;
                 }
             }
         }
 
-        static constexpr uint8_t SKULL_ICON_INDEX = 7;
+        static constexpr uint8 SKULL_ICON_INDEX = 7;
 
-        Group* group = bot->GetGroup();
-        if (!group)
-            return false;  // Cannot assign icon without group
-
+        // Prefer the nearest tomb; fall back to marking the boss itself
         Unit* targetToMark = nearestTomb;
-
-        // Fallback: mark boss if no tomb is found
         if (!targetToMark)
         {
             Unit* boss = AI_VALUE2(Unit*, "find target", "sindragosa");
@@ -5955,10 +5944,9 @@ bool IccSindragosaGroupPositionAction::HandleNonTankPositioning()
 
         if (targetToMark)
         {
-            const ObjectGuid currentSkull = group->GetTargetIcon(SKULL_ICON_INDEX);
-            Unit* currentSkullUnit = botAI->GetUnit(currentSkull);
-
-            const bool needsUpdate =
+            ObjectGuid const currentSkull = group->GetTargetIcon(SKULL_ICON_INDEX);
+            Unit* const currentSkullUnit = botAI->GetUnit(currentSkull);
+            bool const needsUpdate =
                 !currentSkullUnit || !currentSkullUnit->IsAlive() || currentSkullUnit != targetToMark;
 
             if (needsUpdate)
@@ -5967,50 +5955,36 @@ bool IccSindragosaGroupPositionAction::HandleNonTankPositioning()
     }
 
     context->GetValue<std::string>("rti")->Set("skull");
+
     if (botAI->IsRanged(bot))
     {
-        const float TOLERANCE = 9.0f;
-        const float MAX_STEP = 5.0f;
+        static constexpr float RANGED_TOLERANCE = 9.0f;
+        static constexpr float RANGED_MAX_STEP = 5.0f;
 
-        float distToTarget = bot->GetExactDist2d(ICC_SINDRAGOSA_RANGED_POSITION);
-
-        // Only move if outside tolerance
-        if (distToTarget > TOLERANCE)
-            return MoveIncrementallyToPosition(ICC_SINDRAGOSA_RANGED_POSITION, MAX_STEP);
+        if (bot->GetExactDist2d(ICC_SINDRAGOSA_RANGED_POSITION) > RANGED_TOLERANCE)
+            return MoveIncrementallyToPosition(ICC_SINDRAGOSA_RANGED_POSITION, RANGED_MAX_STEP);
 
         return false;
     }
-    else
-    {
-        const float TOLERANCE = 10.0f;
-        const float MAX_STEP = 5.0f;
 
-        float distToTarget = bot->GetExactDist2d(ICC_SINDRAGOSA_MELEE_POSITION);
+    static constexpr float MELEE_TOLERANCE = 10.0f;
+    static constexpr float MELEE_MAX_STEP = 5.0f;
 
-        // Only move if outside tolerance
-        if (distToTarget > TOLERANCE)
-            return MoveIncrementallyToPosition(ICC_SINDRAGOSA_MELEE_POSITION, MAX_STEP);
+    if (bot->GetExactDist2d(ICC_SINDRAGOSA_MELEE_POSITION) > MELEE_TOLERANCE)
+        return MoveIncrementallyToPosition(ICC_SINDRAGOSA_MELEE_POSITION, MELEE_MAX_STEP);
 
-        return false;
-    }
+    return false;
 }
 
-bool IccSindragosaGroupPositionAction::MoveIncrementallyToPosition(const Position& targetPos, float maxStep)
+bool IccSindragosaGroupPositionAction::MoveIncrementallyToPosition(Position const& targetPos, float maxStep)
 {
-    // Calculate direction vector to target
-    float dirX = targetPos.GetPositionX() - bot->GetPositionX();
-    float dirY = targetPos.GetPositionY() - bot->GetPositionY();
+    float const dirX = targetPos.GetPositionX() - bot->GetPositionX();
+    float const dirY = targetPos.GetPositionY() - bot->GetPositionY();
+    float const length = std::hypot(dirX, dirY);
 
-    // Normalize direction vector
-    float length = sqrt(dirX * dirX + dirY * dirY);
-    dirX /= length;
-    dirY /= length;
-
-    // Calculate intermediate point
-    float distToTarget = bot->GetExactDist2d(targetPos);
-    float stepSize = std::min(maxStep, distToTarget);
-    float moveX = bot->GetPositionX() + dirX * stepSize;
-    float moveY = bot->GetPositionY() + dirY * stepSize;
+    float const stepSize = std::min(maxStep, bot->GetExactDist2d(targetPos));
+    float const moveX = bot->GetPositionX() + (dirX / length) * stepSize;
+    float const moveY = bot->GetPositionY() + (dirY / length) * stepSize;
 
     return MoveTo(bot->GetMapId(), moveX, moveY, targetPos.GetPositionZ(), false, false, false, false,
                   MovementPriority::MOVEMENT_COMBAT);
@@ -6022,19 +5996,15 @@ bool IccSindragosaTankSwapPositionAction::Execute(Event /*event*/)
     if (!boss)
         return false;
 
-    // Only for assist tank
     if (!botAI->IsAssistTank(bot))
         return false;
 
-    float distToTankPos = bot->GetExactDist2d(ICC_SINDRAGOSA_TANK_POSITION);
-
-    // Move to tank position
-    if (distToTankPos > 3.0f)  // Tighter tolerance for tank swap
+    // Keep the assist tank on the swap position with a tight tolerance
+    if (bot->GetExactDist2d(ICC_SINDRAGOSA_TANK_POSITION) > 3.0f)
     {
         return MoveTo(bot->GetMapId(), ICC_SINDRAGOSA_TANK_POSITION.GetPositionX(),
-                     ICC_SINDRAGOSA_TANK_POSITION.GetPositionY(),
-                     ICC_SINDRAGOSA_TANK_POSITION.GetPositionZ(),
-                     false, false, false, false, MovementPriority::MOVEMENT_FORCED, true, false);
+                      ICC_SINDRAGOSA_TANK_POSITION.GetPositionY(), ICC_SINDRAGOSA_TANK_POSITION.GetPositionZ(), false,
+                      false, false, false, MovementPriority::MOVEMENT_FORCED, true, false);
     }
 
     return false;
@@ -6450,27 +6420,68 @@ bool IccSindragosaMysticBuffetAction::Execute(Event /*event*/)
     return false;
 }
 
+std::map<ObjectGuid, int> IccSindragosaFrostBombAction::s_groupAssignments;
+std::vector<ObjectGuid> IccSindragosaFrostBombAction::s_allGroupGuids;
+
 bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
 {
-    if (!bot || !bot->IsAlive() || bot->HasAura(SPELL_ICE_TOMB))  // Skip if dead or in Ice Tomb
+    if (!bot || !bot->IsAlive() || bot->HasAura(SPELL_ICE_TOMB))
         return false;
 
     Group* group = bot->GetGroup();
     if (!group)
         return false;
 
-    // Find frost bomb marker and tombs
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    const uint32 tombEntries[] = {NPC_TOMB1, NPC_TOMB2, NPC_TOMB3, NPC_TOMB4};  // tomb id's
-    Unit* marker = nullptr;
-    std::vector<Unit*> tombs;
-    std::vector<ObjectGuid> tombGuids;
+    FrostBombContext ctx;
+    if (!CollectContext(ctx))
+    {
+        bot->AttackStop();
+        return true;
+    }
 
-    // Manually search for units with frost bomb aura (SPELL_FROST_BOMB_VISUAL) using NearestHostileNpcsValue logic
+    int const groupIndex = ResolveGroupIndex(group);
+    if (groupIndex < 0)
+        return false;
+
+    Difficulty const diff = bot->GetRaidDifficulty();
+    int const groupCount = (diff == RAID_DIFFICULTY_25MAN_NORMAL || diff == RAID_DIFFICULTY_25MAN_HEROIC) ? 3 : 2;
+
+    std::vector<Position> groupPositions;
+    groupPositions.reserve(groupCount);
+    for (int i = 0; i < groupCount; ++i)
+        groupPositions.push_back(i < static_cast<int>(ctx.tombs.size()) ? ctx.tombs[i]->GetPosition() : ctx.marker->GetPosition());
+
+    std::vector<Unit*> myTombs = SelectTombs(ctx.tombs, groupIndex, groupPositions);
+    if (myTombs.empty())
+        return false;
+
+    Unit* losTomb = SelectBestTomb(myTombs);
+    if (!losTomb)
+        return false;
+
+    float const angle = ctx.marker->GetAngle(losTomb);
+    float const posX = losTomb->GetPositionX() + std::cos(angle) * 6.5f;
+    float const posY = losTomb->GetPositionY() + std::sin(angle) * 6.5f;
+    float const posZ = losTomb->GetPositionZ();
+
+    if (bot->GetDistance2d(posX, posY) > 0.01f)
+    {
+        botAI->Reset();
+        bot->AttackStop();
+        return MoveTo(bot->GetMapId(), posX, posY, posZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED);
+    }
+
+    return HandleRtiMarking(group, groupIndex, myTombs);
+}
+
+bool IccSindragosaFrostBombAction::CollectContext(FrostBombContext& ctx) const
+{
+    constexpr uint32 tombEntries[] = {NPC_TOMB1, NPC_TOMB2, NPC_TOMB3, NPC_TOMB4};
+
     std::list<Unit*> units;
-    float range = 200.0f;
-    Acore::AnyUnitInObjectRangeCheck u_check(bot, range);
-    Acore::UnitListSearcher<Acore::AnyUnitInObjectRangeCheck> searcher(bot, units, u_check);
+    float const range = 200.0f;
+    Acore::AnyUnitInObjectRangeCheck check(bot, range);
+    Acore::UnitListSearcher<Acore::AnyUnitInObjectRangeCheck> searcher(bot, units, check);
     Cell::VisitObjects(bot, searcher, range);
 
     for (Unit* unit : units)
@@ -6478,256 +6489,161 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
         if (!unit || !unit->IsAlive())
             continue;
 
-        if (unit->HasAura(SPELL_FROST_BOMB_VISUAL))  // Frost bomb visual
-            marker = unit;
+        if (unit->HasAura(SPELL_FROST_BOMB_VISUAL))
+            ctx.marker = unit;
 
-        // Check if unit is a tomb
         for (uint32 entry : tombEntries)
         {
             if (unit->GetEntry() == entry)
             {
-                tombs.push_back(unit);
-                tombGuids.push_back(unit->GetGUID());
+                ctx.tombs.push_back(unit);
                 break;
             }
         }
     }
 
-    if (!marker || tombs.empty())
+    return ctx.marker && !ctx.tombs.empty();
+}
+
+int IccSindragosaFrostBombAction::ResolveGroupIndex(Group* group) const
+{
+    // Accumulate all member GUIDs (alive and dead)
+    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
+        Player* member = itr->GetSource();
+        if (!member)
+            continue;
+
+        ObjectGuid const guid = member->GetGUID();
+        if (std::find(s_allGroupGuids.begin(), s_allGroupGuids.end(), guid) == s_allGroupGuids.end())
+            s_allGroupGuids.push_back(guid);
+    }
+
+    std::sort(s_allGroupGuids.begin(), s_allGroupGuids.end());
+
+    Difficulty const diff = bot->GetRaidDifficulty();
+    int const groupCount = (diff == RAID_DIFFICULTY_25MAN_NORMAL || diff == RAID_DIFFICULTY_25MAN_HEROIC) ? 3 : 2;
+
+    for (std::size_t i = 0; i < s_allGroupGuids.size(); ++i)
+    {
+        ObjectGuid const& guid = s_allGroupGuids[i];
+        if (s_groupAssignments.find(guid) == s_groupAssignments.end())
+            s_groupAssignments[guid] = static_cast<int>(i) % groupCount;
+    }
+
+    auto it = s_groupAssignments.find(bot->GetGUID());
+    return it != s_groupAssignments.end() ? it->second : -1;
+}
+
+std::vector<Unit*> IccSindragosaFrostBombAction::SelectTombs(std::vector<Unit*> const& tombs, int groupIndex, std::vector<Position> const& groupPositions) const
+{
+    // Priority 1: tombs within 8 yards of bot's current position
+    std::vector<Unit*> nearby;
+    for (Unit* tomb : tombs)
+    {
+        if (tomb->GetExactDist2d(bot) <= 8.0f)
+            nearby.push_back(tomb);
+    }
+    if (!nearby.empty())
+        return nearby;
+
+    // Priority 2: tombs within 8 yards of this group's assigned position
+    std::vector<Unit*> atGroupPos;
+    for (Unit* tomb : tombs)
+    {
+        if (tomb->GetExactDist2d(groupPositions[groupIndex]) <= 8.0f)
+            atGroupPos.push_back(tomb);
+    }
+    if (!atGroupPos.empty())
+        return atGroupPos;
+
+    // Priority 3: closest tomb as fallback
+    Unit* closest = nullptr;
+    float closestDist = 999.0f;
+    for (Unit* tomb : tombs)
+    {
+        float const dist = tomb->GetExactDist2d(bot);
+        if (dist < closestDist)
+        {
+            closestDist = dist;
+            closest = tomb;
+        }
+    }
+
+    std::vector<Unit*> fallback;
+    if (closest)
+        fallback.push_back(closest);
+    return fallback;
+}
+
+Unit* IccSindragosaFrostBombAction::SelectBestTomb(std::vector<Unit*> const& candidates) const
+{
+    Unit* best = nullptr;
+    float bestHp = 0.0f;
+    for (Unit* tomb : candidates)
+    {
+        float const hp = tomb->GetHealthPct();
+        if (!best || hp > bestHp)
+        {
+            bestHp = hp;
+            best = tomb;
+        }
+    }
+    return best;
+}
+
+bool IccSindragosaFrostBombAction::HandleRtiMarking(Group* group, int groupIndex, std::vector<Unit*> const& myTombs)
+{
+    constexpr uint8 SKULL_ICON = 7;
+    constexpr uint8 CROSS_ICON = 6;
+    constexpr uint8 STAR_ICON = 0;
+
+    uint8 iconIndex = 0;
+    std::string rtiValue;
+
+    switch (groupIndex)
+    {
+        case 0:
+            iconIndex = SKULL_ICON;
+            rtiValue = "skull";
+            break;
+        case 1:
+            iconIndex = CROSS_ICON;
+            rtiValue = "cross";
+            break;
+        case 2:
+            iconIndex = STAR_ICON;
+            rtiValue = "star";
+            break;
+        default:
+            return false;
+    }
+
+    context->GetValue<std::string>("rti")->Set(rtiValue);
+
+    Unit* tombToMark = nullptr;
+    for (Unit* tomb : myTombs)
+    {
+        if (tomb->IsAlive() && tomb->HealthAbovePct(45))
+        {
+            tombToMark = tomb;
+            break;
+        }
+    }
+
+    if (!tombToMark)
+    {
+        ObjectGuid const currentIcon = group->GetTargetIcon(iconIndex);
+        if (!currentIcon.IsEmpty())
+            group->SetTargetIcon(iconIndex, bot->GetGUID(), ObjectGuid::Empty);
+
         bot->AttackStop();
         return true;
     }
 
-    // Get persistent group assignment - use a static map to store assignments
-    static std::map<ObjectGuid, int> persistentGroupAssignments;
-    static std::vector<ObjectGuid> allGroupGuids;  // All guids that have ever been in the raid
-
-    // Gather all group members (alive and dead, including those with ice tomb)
-    std::vector<ObjectGuid> currentGuids;
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-    {
-        Player* member = itr->GetSource();
-        if (member)
-            currentGuids.push_back(member->GetGUID());
-    }
-
-    // Add any new GUIDs to our persistent list
-    for (const ObjectGuid& guid : currentGuids)
-    {
-        if (std::find(allGroupGuids.begin(), allGroupGuids.end(), guid) == allGroupGuids.end())
-        {
-            allGroupGuids.push_back(guid);
-        }
-    }
-
-    // Sort the complete guid list for consistency
-    std::sort(allGroupGuids.begin(), allGroupGuids.end());
-
-    Difficulty diff = bot->GetRaidDifficulty();
-    // Determine group count (2 for 10m, 3 for 25m)
-    int groupCount = (diff == RAID_DIFFICULTY_25MAN_NORMAL || diff == RAID_DIFFICULTY_25MAN_HEROIC) ? 3 : 2;
-
-    // Assign group indices to GUIDs that don't have assignments yet
-    for (size_t i = 0; i < allGroupGuids.size(); ++i)
-    {
-        const ObjectGuid& guid = allGroupGuids[i];
-        if (persistentGroupAssignments.find(guid) == persistentGroupAssignments.end())
-        {
-            // Assign to group based on their position in the sorted list
-            persistentGroupAssignments[guid] = int(i) % groupCount;
-        }
-    }
-
-    // Get this bot's group assignment
-    auto it = persistentGroupAssignments.find(bot->GetGUID());
-    if (it == persistentGroupAssignments.end())
-        return false;
-
-    int myGroupIndex = it->second;
-
-    // Build group positions based on available tombs
-    std::vector<Position> groupPositions;
-    for (int i = 0; i < groupCount; ++i)
-    {
-        if (i < int(tombs.size()))
-        {
-            groupPositions.push_back(tombs[i]->GetPosition());
-        }
-        else
-        {
-            groupPositions.push_back(marker->GetPosition());
-        }
-    }
-
-    // PRIORITY 1: Check if there are any tombs near our current position (within 8 yards)
-    std::vector<Unit*> nearbyTombs;
-    for (Unit* tomb : tombs)
-    {
-        if (tomb->GetExactDist2d(bot) <= 8.0f)
-        {
-            nearbyTombs.push_back(tomb);
-        }
-    }
-
-    // PRIORITY 2: If no tombs nearby, find tombs near our assigned group position
-    std::vector<Unit*> groupPositionTombs;
-    if (nearbyTombs.empty())
-    {
-        for (Unit* tomb : tombs)
-        {
-            if (tomb->GetExactDist2d(groupPositions[myGroupIndex]) <= 8.0f)
-            {
-                groupPositionTombs.push_back(tomb);
-            }
-        }
-    }
-
-    // Select which tombs to use based on priority
-    std::vector<Unit*> myTombs;
-    std::vector<ObjectGuid> myTombGuids;
-
-    if (!nearbyTombs.empty())
-    {
-        // Use tombs near current position (highest priority)
-        myTombs = nearbyTombs;
-        for (Unit* tomb : nearbyTombs)
-        {
-            myTombGuids.push_back(tomb->GetGUID());
-        }
-    }
-    else if (!groupPositionTombs.empty())
-    {
-        // Use tombs near group position (medium priority)
-        myTombs = groupPositionTombs;
-        for (Unit* tomb : groupPositionTombs)
-        {
-            myTombGuids.push_back(tomb->GetGUID());
-        }
-    }
-    else
-    {
-        // Fallback: use closest available tomb (lowest priority)
-        Unit* closestTomb = nullptr;
-        float closestDist = 999.0f;
-        for (Unit* tomb : tombs)
-        {
-            float dist = tomb->GetExactDist2d(bot);
-            if (dist < closestDist)
-            {
-                closestDist = dist;
-                closestTomb = tomb;
-            }
-        }
-        if (closestTomb)
-        {
-            myTombs.push_back(closestTomb);
-            myTombGuids.push_back(closestTomb->GetGUID());
-        }
-    }
-
-    if (myTombs.empty())
-        return false;
-
-    // Pick the tomb with highest HP in our selection
-    size_t bestIdx = 0;
-    float bestHp = 0.0f;
-    for (size_t i = 0; i < myTombs.size(); ++i)
-    {
-        float hp = myTombs[i]->GetHealthPct();
-        if (i == 0 || hp > bestHp)
-        {
-            bestHp = hp;
-            bestIdx = i;
-        }
-    }
-    Unit* losTomb = myTombs[bestIdx];
-
-    // Calculate position for LOS (stand at least 6.5f behind the tomb from the bomb)
-    float angle = marker->GetAngle(losTomb);
-    float posX = losTomb->GetPositionX() + cos(angle) * 6.5f;
-    float posY = losTomb->GetPositionY() + sin(angle) * 6.5f;
-    float posZ = losTomb->GetPositionZ();
-
-    // Always move to exact LOS position for safety
-    float distToLosPos = bot->GetDistance2d(posX, posY);
-    if (distToLosPos > 0.01f)
-    {
-        botAI->Reset();
-        bot->AttackStop();
-        return MoveTo(bot->GetMapId(), posX, posY, posZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED);
-    }
-
-    // Check if we are in LOS of the bomb (must be very close to calculated position)
-    bool inLOS = (distToLosPos <= 0.01f);
-
-    // RTI marker constants
-    static constexpr uint8_t SKULL_ICON_INDEX = 7;
-    static constexpr uint8_t CROSS_ICON_INDEX = 6;
-    static constexpr uint8_t STAR_ICON_INDEX = 0;
-
-    // If in LOS, handle RTI marking for group's tombs
-    if (inLOS)
-    {
-        // Determine RTI marker for this group
-        uint8_t iconIndex = 0;
-        std::string rtiValue;
-        if (myGroupIndex == 0)
-        {
-            iconIndex = SKULL_ICON_INDEX;
-            rtiValue = "skull";
-        }
-        else if (myGroupIndex == 1)
-        {
-            iconIndex = CROSS_ICON_INDEX;
-            rtiValue = "cross";
-        }
-        else if (myGroupIndex == 2)
-        {
-            iconIndex = STAR_ICON_INDEX;
-            rtiValue = "star";
-        }
-        else
-            return false;
-
-        context->GetValue<std::string>("rti")->Set(rtiValue);
-
-        // Find a tomb in our group with 45% or more HP to mark
-        Unit* tombToMark = nullptr;
-        for (size_t i = 0; i < myTombs.size(); ++i)
-        {
-            Unit* tomb = myTombs[i];
-            if (tomb->IsAlive() && tomb->HealthAbovePct(45))
-            {
-                tombToMark = tomb;
-                break;
-            }
-        }
-
-        if (tombToMark)
-        {
-            // Check if this tomb is already marked with our group's icon
-            ObjectGuid currentIcon = group->GetTargetIcon(iconIndex);
-            Unit* currentIconUnit = botAI->GetUnit(currentIcon);
-            if (!currentIconUnit || !currentIconUnit->IsAlive() || currentIconUnit != tombToMark)
-            {
-                // Mark the tomb with our group's target icon
-                group->SetTargetIcon(iconIndex, bot->GetGUID(), tombToMark->GetGUID());
-            }
-        }
-        else
-        {
-            // No tombs above 45% HP, remove marker if one exists
-            ObjectGuid currentIcon = group->GetTargetIcon(iconIndex);
-            if (!currentIcon.IsEmpty())
-            {
-                // Clear the marker for our group's icon
-                group->SetTargetIcon(iconIndex, bot->GetGUID(), ObjectGuid::Empty);
-            }
-            bot->AttackStop();
-            return true;
-        }
-    }
+    Unit* currentIconUnit = botAI->GetUnit(group->GetTargetIcon(iconIndex));
+    if (!currentIconUnit || !currentIconUnit->IsAlive() || currentIconUnit != tombToMark)
+        group->SetTargetIcon(iconIndex, bot->GetGUID(), tombToMark->GetGUID());
 
     return false;
 }
