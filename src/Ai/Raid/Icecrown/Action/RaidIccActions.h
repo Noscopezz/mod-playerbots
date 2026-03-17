@@ -484,34 +484,42 @@ public:
         : AttackAction(botAI, "icc valithria group") {}
     bool Execute(Event event) override;
 
-    bool MoveTowardsPosition(const Position& pos, float increment);
+    bool MoveTowardsPosition(Position const& pos, float increment);
     bool Handle25ManGroupLogic();
-    bool HandleMarkingLogic(bool inGroup1, bool inGroup2, const Position& group1Pos, const Position& group2Pos);
+    bool HandleMarkingLogic(bool inGroup1, bool inGroup2, Position const& group1Pos, Position const& group2Pos);
     bool Handle10ManGroupLogic();
+ 
+private:
+    void ApplyCrowdControl(Unit* zombie);
 };
-
+ 
 class IccValithriaPortalAction : public MovementAction
 {
 public:
     IccValithriaPortalAction(PlayerbotAI* botAI)
-            : MovementAction(botAI, "icc valithria portal") {}
+        : MovementAction(botAI, "icc valithria portal") {}
     bool Execute(Event event) override;
 };
-
+ 
 class IccValithriaHealAction : public AttackAction
 {
 public:
     IccValithriaHealAction(PlayerbotAI* botAI)
-            : AttackAction(botAI, "icc valithria heal") {}
+        : AttackAction(botAI, "icc valithria heal") {}
     bool Execute(Event event) override;
 };
-
+ 
 class IccValithriaDreamCloudAction : public MovementAction
 {
 public:
     IccValithriaDreamCloudAction(PlayerbotAI* botAI)
-            : MovementAction(botAI, "icc valithria dream cloud") {}
+        : MovementAction(botAI, "icc valithria dream cloud") {}
     bool Execute(Event event) override;
+
+private:
+    std::vector<Creature*> CollectClouds(uint32 entry, Unit* reference);
+    Creature* SelectNextCloud(std::vector<Creature*> const& dreamClouds, std::vector<Creature*> const& nightmareClouds, Unit* leader);
+    Creature* PickCloudTarget(std::vector<Creature*> const& preferred, std::vector<Creature*> const& secondary, bool atPreferred, bool atSecondary, Unit* leader);
 };
 
 //Sindragosa

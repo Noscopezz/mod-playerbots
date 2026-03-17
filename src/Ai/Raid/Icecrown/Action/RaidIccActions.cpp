@@ -4820,88 +4820,103 @@ bool IccSisterSvalnaAction::Execute(Event /*event*/)
 }
 
 // VDW
+static std::vector<Creature*> GetCreaturesByEntry(WorldObject* searcher, uint32 entry, float range)
+{
+    std::list<Creature*> raw;
+    searcher->GetCreatureListWithEntryInGrid(raw, entry, range);
+
+    std::vector<Creature*> out;
+    out.reserve(raw.size());
+    for (Creature* c : raw)
+        if (c && c->IsAlive())
+            out.push_back(c);
+
+    return out;
+}
+
+static std::vector<Creature*> GetCreaturesByEntries(WorldObject* searcher, std::initializer_list<uint32> entries, float range)
+{
+    std::vector<Creature*> out;
+    for (uint32 entry : entries)
+    {
+        auto part = GetCreaturesByEntry(searcher, entry, range);
+        out.insert(out.end(), part.begin(), part.end());
+    }
+    std::sort(out.begin(), out.end(), [](Creature const* a, Creature const* b) { return a->GetGUID() < b->GetGUID(); });
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+
+    return out;
+}
+
 bool IccValithriaGroupAction::Execute(Event /*event*/)
 {
-    // Helper lambda to find nearest creature of given entries
-    auto findNearestCreature = [this](std::initializer_list<uint32> entries, float range) -> Creature*
-    {
-        for (uint32 entry : entries)
-        {
-            if (Creature* creature = bot->FindNearestCreature(entry, range))
-            {
-                return creature;
-            }
-        }
-        return nullptr;
-    };
-
-    // Find portals and enemies
-    Creature* portal = findNearestCreature({NPC_DREAM_PORTAL, NPC_DREAM_PORTAL_PRE_EFFECT, NPC_NIGHTMARE_PORTAL, NPC_NIGHTMARE_PORTAL_PRE_EFFECT}, 100.0f);
+    Creature* portal =
+        GetCreaturesByEntries(
+            bot, {NPC_DREAM_PORTAL, NPC_DREAM_PORTAL_PRE_EFFECT, NPC_NIGHTMARE_PORTAL, NPC_NIGHTMARE_PORTAL_PRE_EFFECT},
+            100.0f)
+                .empty()
+            ? nullptr
+            : GetCreaturesByEntries(bot,
+                                    {NPC_DREAM_PORTAL, NPC_DREAM_PORTAL_PRE_EFFECT, NPC_NIGHTMARE_PORTAL,
+                                     NPC_NIGHTMARE_PORTAL_PRE_EFFECT},
+                                    100.0f)
+                  .front();
 
     Creature* worm = bot->FindNearestCreature(NPC_ROT_WORM, 100.0f);
     Creature* zombie = bot->FindNearestCreature(NPC_BLISTERING_ZOMBIE, 100.0f);
     Creature* manaVoid = bot->FindNearestCreature(NPC_MANA_VOID, 100.0f);
 
-    // Find column of frost units
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    std::vector<Unit*> columnOfFrost;
-    for (ObjectGuid guid : npcs)
+    // Column of Frost units – still hostile so the hostile list is fine here
+    GuidVector const npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    std::vector<Unit*> frostColumns;
+    for (ObjectGuid const& guid : npcs)
     {
-        if (Unit* unit = botAI->GetUnit(guid))
-        {
-            if (unit->IsAlive() && unit->GetEntry() == NPC_COLUMN_OF_FROST)
-            {
-                columnOfFrost.push_back(unit);
-            }
-        }
+        Unit* unit = botAI->GetUnit(guid);
+        if (unit && unit->IsAlive() && unit->GetEntry() == NPC_COLUMN_OF_FROST)
+            frostColumns.push_back(unit);
     }
 
-    // Tank behavior
+    // Tanks aggro Gluttonous Abominations / Rot Worms not already on a tank
     if (botAI->IsTank(bot))
     {
-        for (auto const& targetGuid : AI_VALUE(GuidVector, "possible targets"))
+        for (ObjectGuid const& guid : AI_VALUE(GuidVector, "possible targets"))
         {
-            if (Unit* unit = botAI->GetUnit(targetGuid))
-            {
-                if (unit->IsAlive() &&
-                    (unit->GetEntry() == NPC_GLUTTONOUS_ABOMINATION || unit->GetEntry() == NPC_ROT_WORM))
-                {
-                    // Skip if unit is already attacking any tank
-                    if (Unit* victim = unit->GetVictim())
-                    {
-                        if (victim->IsPlayer() && botAI->IsTank(static_cast<Player*>(victim)))
-                        {
-                            continue;
-                        }
-                    }
+            Unit* unit = botAI->GetUnit(guid);
+            if (!unit || !unit->IsAlive())
+                continue;
+            if (unit->GetEntry() != NPC_GLUTTONOUS_ABOMINATION && unit->GetEntry() != NPC_ROT_WORM)
+                continue;
 
-                    // Only attack if not already targeting us
-                    if (unit->GetVictim() != bot)
-                    {
-                        bot->SetTarget(unit->GetGUID());
-                        bot->SetFacingToObject(unit);
-                        Attack(unit);
-                    }
-                }
+            if (Unit* victim = unit->GetVictim())
+                if (victim->IsPlayer() && botAI->IsTank(victim->ToPlayer()))
+                    continue;
+
+            if (unit->GetVictim() != bot)
+            {
+                bot->SetTarget(unit->GetGUID());
+                bot->SetFacingToObject(unit);
+                Attack(unit);
             }
         }
     }
 
-    // Healer movement logic
-    if (botAI->IsHeal(bot) && bot->GetExactDist2d(ICC_VDW_HEAL_POSITION) > 30.0f && !portal)
+    // Healers move toward the heal position when no portal is active
+    if (botAI->IsHeal(bot) && !portal && bot->GetExactDist2d(ICC_VDW_HEAL_POSITION) > 30.0f)
+    {
         return MoveTo(bot->GetMapId(), ICC_VDW_HEAL_POSITION.GetPositionX(), ICC_VDW_HEAL_POSITION.GetPositionY(),
-                      ICC_VDW_HEAL_POSITION.GetPositionZ(),
-                      false, false, false, false, MovementPriority::MOVEMENT_NORMAL);
+                      ICC_VDW_HEAL_POSITION.GetPositionZ(), false, false, false, false,
+                      MovementPriority::MOVEMENT_NORMAL);
+    }
 
-    // Avoidance behaviors
-    if (manaVoid && bot->GetExactDist2d(manaVoid) < 10.0f &&
-        !(botAI->GetAura("Twisted Nightmares", bot) || botAI->GetAura("Emerald Vigor", bot)))
+    // Avoidance
+    if (manaVoid && bot->GetExactDist2d(manaVoid) < 10.0f && !botAI->GetAura("Twisted Nightmares", bot) &&
+        !botAI->GetAura("Emerald Vigor", bot))
     {
         botAI->Reset();
         FleePosition(manaVoid->GetPosition(), 11.0f, 250U);
     }
 
-    for (Unit* column : columnOfFrost)
+    for (Unit* column : frostColumns)
     {
         if (column && bot->GetExactDist2d(column) < 7.0f)
         {
@@ -4923,72 +4938,71 @@ bool IccValithriaGroupAction::Execute(Event /*event*/)
         FleePosition(zombie->GetPosition(), 21.0f, 250U);
     }
 
-    // Crowd control logic
     if (zombie && !botAI->IsMainTank(bot) && !botAI->IsHeal(bot) && zombie->GetVictim() != bot)
-    {
-        switch (bot->getClass())
-        {
-            case CLASS_MAGE:
-                if (!botAI->HasAura("Frost Nova", zombie))
-                    botAI->CastSpell("Frost Nova", zombie);
-                break;
-            case CLASS_DRUID:
-                if (!botAI->HasAura("Entangling Roots", zombie))
-                    botAI->CastSpell("Entangling Roots", zombie);
-                break;
-            case CLASS_PALADIN:
-                if (!botAI->HasAura("Hammer of Justice", zombie))
-                    botAI->CastSpell("Hammer of Justice", zombie);
-                break;
-            case CLASS_WARRIOR:
-                if (!botAI->HasAura("Hamstring", zombie))
-                    botAI->CastSpell("Hamstring", zombie);
-                break;
-            case CLASS_HUNTER:
-                if (!botAI->HasAura("Concussive Shot", zombie))
-                    botAI->CastSpell("Concussive Shot", zombie);
-                break;
-            case CLASS_ROGUE:
-                if (!botAI->HasAura("Kidney Shot", zombie))
-                    botAI->CastSpell("Kidney Shot", zombie);
-                break;
-            case CLASS_SHAMAN:
-                if (!botAI->HasAura("Frost Shock", zombie))
-                    botAI->CastSpell("Frost Shock", zombie);
-                break;
-            case CLASS_DEATH_KNIGHT:
-                if (!botAI->HasAura("Chains of Ice", zombie))
-                    botAI->CastSpell("Chains of Ice", zombie);
-                break;
-            default:
-                break;
-        }
-    }
+        ApplyCrowdControl(zombie);
 
-    // Group assignment and movement logic
-    Difficulty diff = bot->GetRaidDifficulty();
+    Difficulty const diff = bot->GetRaidDifficulty();
     Group* group = bot->GetGroup();
 
     if (group && (diff == RAID_DIFFICULTY_25MAN_NORMAL || diff == RAID_DIFFICULTY_25MAN_HEROIC))
         return Handle25ManGroupLogic();
-    else
-        return Handle10ManGroupLogic();
+
+    return Handle10ManGroupLogic();
 }
 
-bool IccValithriaGroupAction::MoveTowardsPosition(const Position& pos, float increment)
+void IccValithriaGroupAction::ApplyCrowdControl(Unit* zombie)
 {
-    float dx = pos.GetPositionX() - bot->GetPositionX();
-    float dy = pos.GetPositionY() - bot->GetPositionY();
-    float dz = pos.GetPositionZ() - bot->GetPositionZ();
-    float dist = std::hypot(dx, dy);
+    switch (bot->getClass())
+    {
+        case CLASS_MAGE:
+            if (!botAI->HasAura("Frost Nova", zombie))
+                botAI->CastSpell("Frost Nova", zombie);
+            break;
+        case CLASS_DRUID:
+            if (!botAI->HasAura("Entangling Roots", zombie))
+                botAI->CastSpell("Entangling Roots", zombie);
+            break;
+        case CLASS_PALADIN:
+            if (!botAI->HasAura("Hammer of Justice", zombie))
+                botAI->CastSpell("Hammer of Justice", zombie);
+            break;
+        case CLASS_WARRIOR:
+            if (!botAI->HasAura("Hamstring", zombie))
+                botAI->CastSpell("Hamstring", zombie);
+            break;
+        case CLASS_HUNTER:
+            if (!botAI->HasAura("Concussive Shot", zombie))
+                botAI->CastSpell("Concussive Shot", zombie);
+            break;
+        case CLASS_ROGUE:
+            if (!botAI->HasAura("Kidney Shot", zombie))
+                botAI->CastSpell("Kidney Shot", zombie);
+            break;
+        case CLASS_SHAMAN:
+            if (!botAI->HasAura("Frost Shock", zombie))
+                botAI->CastSpell("Frost Shock", zombie);
+            break;
+        case CLASS_DEATH_KNIGHT:
+            if (!botAI->HasAura("Chains of Ice", zombie))
+                botAI->CastSpell("Chains of Ice", zombie);
+            break;
+        default:
+            break;
+    }
+}
+
+bool IccValithriaGroupAction::MoveTowardsPosition(Position const& pos, float increment)
+{
+    float const dx = pos.GetPositionX() - bot->GetPositionX();
+    float const dy = pos.GetPositionY() - bot->GetPositionY();
+    float const dz = pos.GetPositionZ() - bot->GetPositionZ();
+    float const dist = std::hypot(dx, dy);
 
     float moveX, moveY, moveZ;
     if (dist > increment)
     {
-        dx /= dist;
-        dy /= dist;
-        moveX = bot->GetPositionX() + dx * increment;
-        moveY = bot->GetPositionY() + dy * increment;
+        moveX = bot->GetPositionX() + (dx / dist) * increment;
+        moveY = bot->GetPositionY() + (dy / dist) * increment;
         moveZ = bot->GetPositionZ() + (dz / dist) * increment;
     }
     else
@@ -4998,58 +5012,41 @@ bool IccValithriaGroupAction::MoveTowardsPosition(const Position& pos, float inc
         moveZ = pos.GetPositionZ();
     }
 
-    MoveTo(bot->GetMapId(), moveX, moveY, moveZ, false, false, false, true, MovementPriority::MOVEMENT_COMBAT,
-           true, false);
+    MoveTo(bot->GetMapId(), moveX, moveY, moveZ, false, false, false, true, MovementPriority::MOVEMENT_COMBAT, true, false);
 
     return false;
 }
 
 bool IccValithriaGroupAction::Handle25ManGroupLogic()
 {
-    const Position group1Pos = ICC_VDW_GROUP1_POSITION;
-    const Position group2Pos = ICC_VDW_GROUP2_POSITION;
+    Position const group1Pos = ICC_VDW_GROUP1_POSITION;
+    Position const group2Pos = ICC_VDW_GROUP2_POSITION;
 
     Group* group = bot->GetGroup();
     if (!group)
         return false;
 
-    // Collect group members
     std::vector<Player*> tanks, dps;
-    std::vector<std::pair<ObjectGuid, Player*>> nonHeals;
-
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
     {
-        if (Player* member = itr->GetSource())
-        {
-            if (member->IsAlive() && !botAI->IsHeal(member))
-            {
-                if (botAI->IsTank(member))
-                {
-                    tanks.push_back(member);
-                }
-                else
-                {
-                    dps.push_back(member);
-                }
-                nonHeals.emplace_back(member->GetGUID(), member);
-            }
-        }
+        Player* member = itr->GetSource();
+        if (!member || !member->IsAlive() || botAI->IsHeal(member))
+            continue;
+
+        if (botAI->IsTank(member))
+            tanks.push_back(member);
+        else
+            dps.push_back(member);
     }
 
-    // Sort by GUID for consistent ordering
-    std::sort(nonHeals.begin(), nonHeals.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
-
-    // Assign to groups
     std::vector<Player*> group1, group2;
     if (!tanks.empty())
         group1.push_back(tanks[0]);
-
     if (tanks.size() > 1)
         group2.push_back(tanks[1]);
     else if (tanks.size() == 1 && !dps.empty())
         group2.push_back(dps[0]);
 
-    // Assign remaining DPS
     std::set<ObjectGuid> assigned;
     for (Player* p : group1)
         assigned.insert(p->GetGUID());
@@ -5058,67 +5055,50 @@ bool IccValithriaGroupAction::Handle25ManGroupLogic()
 
     for (Player* p : dps)
     {
-        if (assigned.find(p->GetGUID()) == assigned.end())
-        {
-            (group1.size() <= group2.size() ? group1 : group2).push_back(p);
-        }
+        if (assigned.count(p->GetGUID()))
+            continue;
+        (group1.size() <= group2.size() ? group1 : group2).push_back(p);
     }
 
-    // Check which group the bot is in
-    bool inGroup1 = std::any_of(group1.begin(), group1.end(), [this](Player* p) { return p == bot; });
-    bool inGroup2 = std::any_of(group2.begin(), group2.end(), [this](Player* p) { return p == bot; });
+    bool const inGroup1 = std::any_of(group1.begin(), group1.end(), [this](Player* p) { return p == bot; });
+    bool const inGroup2 = std::any_of(group2.begin(), group2.end(), [this](Player* p) { return p == bot; });
 
-    // Marking logic for tanks and DPS
     if (botAI->IsTank(bot) || botAI->IsDps(bot))
         HandleMarkingLogic(inGroup1, inGroup2, group1Pos, group2Pos);
 
-    // Movement logic for non-healers
-    if (!botAI->IsHeal(bot))
-    {
-        if (inGroup1)
-        {
-            float distance = bot->GetDistance(group1Pos);
-            if (distance > 25.0f)
-            {
-                // If far away, move directly to position
-                MoveTowardsPosition(group1Pos, 5.0f);
-            }
-        }
-        else if (inGroup2)
-        {
-            float distance = bot->GetDistance(group2Pos);
-            if (distance > 25.0f)
-            {
-                MoveTowardsPosition(group2Pos, 5.0f);
-            }
-        }
-    }
+    if (botAI->IsHeal(bot))
+        return false;
+
+    if (inGroup1 && bot->GetDistance(group1Pos) > 25.0f)
+        MoveTowardsPosition(group1Pos, 5.0f);
+    else if (inGroup2 && bot->GetDistance(group2Pos) > 25.0f)
+        MoveTowardsPosition(group2Pos, 5.0f);
 
     return false;
 }
 
-bool IccValithriaGroupAction::HandleMarkingLogic(bool inGroup1, bool inGroup2, const Position& group1Pos,
-                                                 const Position& group2Pos)
+bool IccValithriaGroupAction::HandleMarkingLogic(bool inGroup1, bool inGroup2, Position const& group1Pos,
+                                                 Position const& group2Pos)
 {
-    static constexpr uint8_t SKULL_ICON_INDEX = 7;
-    static constexpr uint8_t CROSS_ICON_INDEX = 6;
-    static const std::array<uint32, 6> addPriority = {NPC_BLAZING_SKELETON,       NPC_SUPPRESSER,
-                                                      NPC_RISEN_ARCHMAGE,         NPC_BLISTERING_ZOMBIE,
-                                                      NPC_GLUTTONOUS_ABOMINATION, NPC_ROT_WORM};
+    static constexpr uint8_t SKULL_ICON = 7;
+    static constexpr uint8_t CROSS_ICON = 6;
+    static constexpr std::array<uint32, 6> ADD_PRIORITY = {NPC_BLAZING_SKELETON,       NPC_SUPPRESSER,
+                                                           NPC_RISEN_ARCHMAGE,         NPC_BLISTERING_ZOMBIE,
+                                                           NPC_GLUTTONOUS_ABOMINATION, NPC_ROT_WORM};
 
-    const Position* groupPos = nullptr;
-    uint8_t iconIndex = 0;
+    uint8_t iconIndex;
+    Position const* groupPos;
     std::string rtiValue;
 
     if (inGroup1)
     {
-        iconIndex = SKULL_ICON_INDEX;
+        iconIndex = SKULL_ICON;
         groupPos = &group1Pos;
         rtiValue = "skull";
     }
     else if (inGroup2)
     {
-        iconIndex = CROSS_ICON_INDEX;
+        iconIndex = CROSS_ICON;
         groupPos = &group2Pos;
         rtiValue = "cross";
     }
@@ -5127,52 +5107,50 @@ bool IccValithriaGroupAction::HandleMarkingLogic(bool inGroup1, bool inGroup2, c
 
     context->GetValue<std::string>("rti")->Set(rtiValue);
 
-    // Find priority target
-    const GuidVector adds = AI_VALUE(GuidVector, "possible targets");
+    GuidVector const adds = AI_VALUE(GuidVector, "possible targets");
     Unit* priorityTarget = nullptr;
 
-    for (uint32 entry : addPriority)
+    for (uint32 entry : ADD_PRIORITY)
     {
-        for (auto const& guid : adds)
+        for (ObjectGuid const& guid : adds)
         {
-            if (Unit* unit = botAI->GetUnit(guid))
+            Unit* unit = botAI->GetUnit(guid);
+            if (!unit || !unit->IsAlive() || unit->GetEntry() != entry)
+                continue;
+            if (unit->GetExactDist2d(groupPos->GetPositionX(), groupPos->GetPositionY()) <= 40.0f)
             {
-                if (unit->IsAlive() && unit->GetEntry() == entry &&
-                    unit->GetExactDist2d(groupPos->GetPositionX(), groupPos->GetPositionY()) <= 40.0f)
-                {
-                    priorityTarget = unit;
-                    break;
-                }
+                priorityTarget = unit;
+                break;
             }
         }
         if (priorityTarget)
             break;
     }
 
-    // Update target icon if needed
-    if (priorityTarget && bot->GetGroup())
+    if (!priorityTarget)
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+
+    bool hasOtherIcon = false;
+    for (uint8 i = 0; i < 8; ++i)
     {
-        Group* group = bot->GetGroup();
-        ObjectGuid currentIcon = group->GetTargetIcon(iconIndex);
-        Unit* currentIconUnit = botAI->GetUnit(currentIcon);
-
-        // Check if the target already has any raid icon
-        bool hasOtherIcon = false;
-        for (uint8 i = 0; i < 8; ++i)
+        if (i == iconIndex)
+            continue;
+        if (group->GetTargetIcon(i) == priorityTarget->GetGUID())
         {
-            if (i == iconIndex)
-                continue;  // Skip our own icon index
-            if (group->GetTargetIcon(i) == priorityTarget->GetGUID())
-            {
-                hasOtherIcon = true;
-                break;
-            }
+            hasOtherIcon = true;
+            break;
         }
+    }
 
-        if (!hasOtherIcon && (!currentIconUnit || !currentIconUnit->IsAlive() || currentIconUnit != priorityTarget))
-        {
+    if (!hasOtherIcon)
+    {
+        Unit* currentIconUnit = botAI->GetUnit(group->GetTargetIcon(iconIndex));
+        if (!currentIconUnit || !currentIconUnit->IsAlive() || currentIconUnit != priorityTarget)
             group->SetTargetIcon(iconIndex, bot->GetGUID(), priorityTarget->GetGUID());
-        }
     }
 
     return false;
@@ -5180,31 +5158,29 @@ bool IccValithriaGroupAction::HandleMarkingLogic(bool inGroup1, bool inGroup2, c
 
 bool IccValithriaGroupAction::Handle10ManGroupLogic()
 {
-    static constexpr uint8_t DEFAULT_ICON_INDEX = 7;
-    static const std::array<uint32, 6> addPriority = {NPC_BLAZING_SKELETON,       NPC_SUPPRESSER,
-                                                      NPC_RISEN_ARCHMAGE,         NPC_BLISTERING_ZOMBIE,
-                                                      NPC_GLUTTONOUS_ABOMINATION, NPC_ROT_WORM};
+    static constexpr uint8_t DEFAULT_ICON = 7;
+    static constexpr std::array<uint32, 6> ADD_PRIORITY = {NPC_BLAZING_SKELETON,       NPC_SUPPRESSER,
+                                                           NPC_RISEN_ARCHMAGE,         NPC_BLISTERING_ZOMBIE,
+                                                           NPC_GLUTTONOUS_ABOMINATION, NPC_ROT_WORM};
 
-    // Marking logic
     Group* group = bot->GetGroup();
     if (group)
     {
-        const GuidVector adds = AI_VALUE(GuidVector, "possible targets");
+        GuidVector const adds = AI_VALUE(GuidVector, "possible targets");
         Unit* priorityTarget = nullptr;
 
-        for (uint32 entry : addPriority)
+        for (uint32 entry : ADD_PRIORITY)
         {
-            for (auto const& guid : adds)
+            for (ObjectGuid const& guid : adds)
             {
-                if (Unit* unit = botAI->GetUnit(guid))
+                Unit* unit = botAI->GetUnit(guid);
+                if (!unit || !unit->IsAlive() || unit->GetEntry() != entry)
+                    continue;
+                if (unit->GetExactDist2d(ICC_VDW_HEAL_POSITION.GetPositionX(), ICC_VDW_HEAL_POSITION.GetPositionY()) <=
+                    50.0f)
                 {
-                    if (unit->IsAlive() && unit->GetEntry() == entry &&
-                        unit->GetExactDist2d(ICC_VDW_HEAL_POSITION.GetPositionX(),
-                                             ICC_VDW_HEAL_POSITION.GetPositionY()) <= 50.0f)
-                    {
-                        priorityTarget = unit;
-                        break;
-                    }
+                    priorityTarget = unit;
+                    break;
                 }
             }
             if (priorityTarget)
@@ -5213,17 +5189,12 @@ bool IccValithriaGroupAction::Handle10ManGroupLogic()
 
         if (priorityTarget)
         {
-            ObjectGuid currentIcon = group->GetTargetIcon(DEFAULT_ICON_INDEX);
-            Unit* currentIconUnit = botAI->GetUnit(currentIcon);
-
+            Unit* currentIconUnit = botAI->GetUnit(group->GetTargetIcon(DEFAULT_ICON));
             if (!currentIconUnit || !currentIconUnit->IsAlive() || currentIconUnit != priorityTarget)
-            {
-                group->SetTargetIcon(DEFAULT_ICON_INDEX, bot->GetGUID(), priorityTarget->GetGUID());
-            }
+                group->SetTargetIcon(DEFAULT_ICON, bot->GetGUID(), priorityTarget->GetGUID());
         }
     }
 
-    // Movement logic
     if (bot->GetExactDist2d(ICC_VDW_HEAL_POSITION.GetPositionX(), ICC_VDW_HEAL_POSITION.GetPositionY()) > 25.0f)
         MoveTowardsPosition(ICC_VDW_HEAL_POSITION, 5.0f);
 
@@ -5232,131 +5203,107 @@ bool IccValithriaGroupAction::Handle10ManGroupLogic()
 
 bool IccValithriaPortalAction::Execute(Event /*event*/)
 {
-    // Only healers should take portals, and not if already inside
     if (!botAI->IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE))
         return false;
 
-    // Gather all portals (pre-effect and real) using nearest npcs
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest npcs");
-    std::vector<Creature*> preEffectPortals;
-    std::vector<Creature*> realPortals;
-    for (auto const& guid : npcs)
-    {
-        Creature* c = dynamic_cast<Creature*>(botAI->GetUnit(guid));
-        if (!c)
-            continue;
-        uint32 entry = c->GetEntry();
-        if (entry == NPC_DREAM_PORTAL_PRE_EFFECT || entry == NPC_NIGHTMARE_PORTAL_PRE_EFFECT)
-            preEffectPortals.push_back(c);
-        else if (entry == NPC_DREAM_PORTAL || entry == NPC_NIGHTMARE_PORTAL)
-            realPortals.push_back(c);
-    }
+    constexpr float SEARCH_RANGE = 200.0f;
+
+    std::vector<Creature*> preEffectPortals =
+        GetCreaturesByEntries(bot, {NPC_DREAM_PORTAL_PRE_EFFECT, NPC_NIGHTMARE_PORTAL_PRE_EFFECT}, SEARCH_RANGE);
+
+    std::vector<Creature*> realPortals =
+        GetCreaturesByEntries(bot, {NPC_DREAM_PORTAL, NPC_NIGHTMARE_PORTAL}, SEARCH_RANGE);
 
     if (preEffectPortals.empty() && realPortals.empty())
         return false;
 
-    // Remove duplicates (in case of overlap)
-    auto sortByGuid = [](Creature* a, Creature* b) { return a->GetGUID() < b->GetGUID(); };
-    std::sort(preEffectPortals.begin(), preEffectPortals.end(), sortByGuid);
-    preEffectPortals.erase(std::unique(preEffectPortals.begin(), preEffectPortals.end()), preEffectPortals.end());
-    std::sort(realPortals.begin(), realPortals.end(), sortByGuid);
-    realPortals.erase(std::unique(realPortals.begin(), realPortals.end()), realPortals.end());
-
-    // Gather all healers in group, sort by GUID for deterministic assignment
+    // Deterministic per-healer portal assignment by sorted GUID index
     Group* group = bot->GetGroup();
     std::vector<Player*> healers;
+
     if (group)
     {
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
         {
             Player* member = itr->GetSource();
             if (member && member->IsAlive() && botAI->IsHeal(member))
                 healers.push_back(member);
         }
-        std::sort(healers.begin(), healers.end(), [](Player* a, Player* b) { return a->GetGUID() < b->GetGUID(); });
+        std::sort(healers.begin(), healers.end(),
+                  [](Player const* a, Player const* b) { return a->GetGUID() < b->GetGUID(); });
     }
     else
         healers.push_back(bot);
 
-    // Find this bot's index among healers
-    auto it = std::find(healers.begin(), healers.end(), bot);
+    auto const it = std::find(healers.begin(), healers.end(), bot);
     if (it == healers.end())
         return false;
-    size_t healerIndex = std::distance(healers.begin(), it);
 
-    // Assign each healer to a pre-effect portal by index (wrap if more healers than portals)
-    Creature* assignedPreEffect = nullptr;
+    size_t const healerIndex = std::distance(healers.begin(), it);
+
     if (!preEffectPortals.empty())
-        assignedPreEffect = preEffectPortals[healerIndex % preEffectPortals.size()];
-
-    // Move to assigned pre-effect portal, stand at portal
-    if (assignedPreEffect)
     {
-        float portalX = assignedPreEffect->GetPositionX();
-        float portalY = assignedPreEffect->GetPositionY();
-        float portalZ = assignedPreEffect->GetPositionZ();
-        float dist = bot->GetDistance2d(portalX, portalY);
+        Creature* assigned = preEffectPortals[healerIndex % preEffectPortals.size()];
 
-        if (dist > 0.5f)
+        if (bot->GetDistance2d(assigned->GetPositionX(), assigned->GetPositionY()) > 0.5f)
         {
-            // Move directly to the pre-effect portal position
-            MoveTo(assignedPreEffect->GetMapId(), portalX, portalY, portalZ, false, false, false, true,
-                   MovementPriority::MOVEMENT_NORMAL);
+            MoveTo(assigned->GetMapId(), assigned->GetPositionX(), assigned->GetPositionY(), assigned->GetPositionZ(),
+                   false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
         }
-        // Remove shapeshift forms
+
         botAI->RemoveShapeshift();
 
-        // Try to click the real portal if it is close enough
-        Creature* nearestRealPortal = nullptr;
+        // Click the real portal once it spawns within reach
+        Creature* nearestReal = nullptr;
         float minDist = 9999.0f;
         for (Creature* portal : realPortals)
         {
-            float d = bot->GetDistance2d(portal);
+            float const d = bot->GetDistance2d(portal);
             if (d < 3.0f && d < minDist)
             {
-                nearestRealPortal = portal;
+                nearestReal = portal;
                 minDist = d;
             }
         }
 
-        if (nearestRealPortal)
+        if (nearestReal)
         {
             botAI->RemoveShapeshift();
             bot->GetMotionMaster()->Clear();
             bot->StopMoving();
-            bot->SetFacingToObject(nearestRealPortal);
-            nearestRealPortal->HandleSpellClick(bot);
+            bot->SetFacingToObject(nearestReal);
+            nearestReal->HandleSpellClick(bot);
             return true;
         }
-
-        // If no real portal is close, wait at the position
         return false;
     }
 
-    // If no pre-effect portals, try to find a real portal within 3f
-    Creature* nearestRealPortal = nullptr;
+    // Fallback: only real portals visible
+    Creature* nearestReal = nullptr;
     float minDist = 9999.0f;
     for (Creature* portal : realPortals)
     {
-        float d = bot->GetDistance2d(portal);
+        float const d = bot->GetDistance2d(portal);
         if (d < 3.0f && d < minDist)
         {
-            nearestRealPortal = portal;
+            nearestReal = portal;
             minDist = d;
         }
     }
 
-    if (nearestRealPortal && minDist > 2.0f)
-        MoveTo(bot->GetMapId(), nearestRealPortal->GetPositionX(), nearestRealPortal->GetPositionY(),
-               nearestRealPortal->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
+    if (nearestReal && minDist > 2.0f)
+    {
+        MoveTo(bot->GetMapId(), nearestReal->GetPositionX(), nearestReal->GetPositionY(), nearestReal->GetPositionZ(),
+               false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
+    }
 
-    if (nearestRealPortal)
+    if (nearestReal)
     {
         botAI->RemoveShapeshift();
         bot->GetMotionMaster()->Clear();
         bot->StopMoving();
-        bot->SetFacingToObject(nearestRealPortal);
-        nearestRealPortal->HandleSpellClick(bot);
+        bot->SetFacingToObject(nearestReal);
+        nearestReal->HandleSpellClick(bot);
         return true;
     }
 
@@ -5365,11 +5312,9 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
 
 bool IccValithriaHealAction::Execute(Event /*event*/)
 {
-    // Early validation checks
     if (!botAI->IsHeal(bot) || bot->GetHealthPct() < 50.0f)
         return false;
 
-    // Handle movement speed when not in dream state
     if (!bot->HasAura(SPELL_DREAM_STATE))
     {
         constexpr float NORMAL_SPEED = 1.0f;
@@ -5378,52 +5323,41 @@ bool IccValithriaHealAction::Execute(Event /*event*/)
         bot->SetSpeed(MOVE_FLIGHT, NORMAL_SPEED, true);
     }
 
-    // Enforce Z-position limit
-    constexpr float MAX_Z_POSITION = 367.961f;
-    constexpr float TARGET_Z_POSITION = 365.0f;
-    if (bot->GetPositionZ() > MAX_Z_POSITION)
-        bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), TARGET_Z_POSITION,
-                        bot->GetOrientation());
+    constexpr float MAX_Z = 367.961f;
+    constexpr float TARGET_Z = 365.0f;
+    if (bot->GetPositionZ() > MAX_Z)
+        bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), TARGET_Z, bot->GetOrientation());
 
-    // Find Valithria within range
     Creature* valithria = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f);
     if (!valithria)
         return false;
 
-    // Execute class-specific healing logic
     switch (bot->getClass())
     {
         case CLASS_DRUID:
         {
-            // Druid healing spell constants
             constexpr uint32 SPELL_REJUVENATION = 48441;
             constexpr uint32 SPELL_REGROWTH = 48443;
             constexpr uint32 SPELL_LIFEBLOOM = 48451;
             constexpr uint32 SPELL_WILD_GROWTH = 53251;
-            constexpr uint8 LIFEBLOOM_MAX_STACKS = 3;
+            constexpr uint8 LIFEBLOOM_MAX = 3;
 
-            // Apply Rejuvenation if missing
             if (!valithria->HasAura(SPELL_REJUVENATION, bot->GetGUID()))
                 return botAI->CastSpell(SPELL_REJUVENATION, valithria);
 
-            // Apply Regrowth if missing
             if (!valithria->HasAura(SPELL_REGROWTH, bot->GetGUID()))
                 return botAI->CastSpell(SPELL_REGROWTH, valithria);
 
-            // Stack Lifebloom to maximum stacks
-            Aura* lifebloom = valithria->GetAura(SPELL_LIFEBLOOM, bot->GetGUID());
-            if (!lifebloom || lifebloom->GetStackAmount() < LIFEBLOOM_MAX_STACKS)
+            Aura* lb = valithria->GetAura(SPELL_LIFEBLOOM, bot->GetGUID());
+            if (!lb || lb->GetStackAmount() < LIFEBLOOM_MAX)
                 return botAI->CastSpell(SPELL_LIFEBLOOM, valithria);
 
-            // All HoTs active with full stacks - cast Wild Growth
             return botAI->CastSpell(SPELL_WILD_GROWTH, valithria);
         }
         case CLASS_SHAMAN:
         {
             constexpr uint32 SPELL_RIPTIDE = 61301;
             constexpr uint32 SPELL_HEALING_WAVE = 49273;
-
-            // Cast Healing Wave if Riptide is active, otherwise apply Riptide
             return valithria->HasAura(SPELL_RIPTIDE, bot->GetGUID()) ? botAI->CastSpell(SPELL_HEALING_WAVE, valithria)
                                                                      : botAI->CastSpell(SPELL_RIPTIDE, valithria);
         }
@@ -5431,307 +5365,148 @@ bool IccValithriaHealAction::Execute(Event /*event*/)
         {
             constexpr uint32 SPELL_RENEW = 48068;
             constexpr uint32 SPELL_GREATER_HEAL = 48063;
-
-            // Cast Greater Heal if Renew is active, otherwise apply Renew
             return valithria->HasAura(SPELL_RENEW, bot->GetGUID()) ? botAI->CastSpell(SPELL_GREATER_HEAL, valithria)
-                                                            : botAI->CastSpell(SPELL_RENEW, valithria);
+                                                                   : botAI->CastSpell(SPELL_RENEW, valithria);
         }
         case CLASS_PALADIN:
         {
-            constexpr uint32 SPELL_BEACON_OF_LIGHT = 53563;
+            constexpr uint32 SPELL_BEACON = 53563;
             constexpr uint32 SPELL_HOLY_LIGHT = 48782;
-
-            // Cast Holy Light if Beacon is active, otherwise apply Beacon of Light
-            return valithria->HasAura(SPELL_BEACON_OF_LIGHT, bot->GetGUID())
-                       ? botAI->CastSpell(SPELL_HOLY_LIGHT, valithria)
-                       : botAI->CastSpell(SPELL_BEACON_OF_LIGHT, valithria);
+            return valithria->HasAura(SPELL_BEACON, bot->GetGUID()) ? botAI->CastSpell(SPELL_HOLY_LIGHT, valithria)
+                                                                    : botAI->CastSpell(SPELL_BEACON, valithria);
         }
         default:
             return false;
     }
-
-    return false;
 }
 
 bool IccValithriaDreamCloudAction::Execute(Event /*event*/)
 {
-    // Only execute if we're in dream state
     if (!bot->HasAura(SPELL_DREAM_STATE))
         return false;
 
-    // Set speed to match players in dream state
     bot->SetSpeed(MOVE_RUN, 2.0f, true);
     bot->SetSpeed(MOVE_WALK, 2.0f, true);
     bot->SetSpeed(MOVE_FLIGHT, 2.0f, true);
 
-    // Gather all group members with dream state
-    const GuidVector members = AI_VALUE(GuidVector, "group members");
-    std::vector<Unit*> dreamBots;
-    for (auto const& guid : members)
+    std::vector<Player*> allDream;
+    std::vector<Player*> realDream;
+
+    Map::PlayerList const& playerList = bot->GetMap()->GetPlayers();
+    for (Map::PlayerList::const_iterator itr = playerList.begin(); itr != playerList.end(); ++itr)
     {
-        Unit* member = botAI->GetUnit(guid);
-        if (member && member->IsAlive() && member->HasAura(SPELL_DREAM_STATE))
-            dreamBots.push_back(member);
+        Player* player = itr->GetSource();
+        if (!player || !player->IsAlive() || !player->HasAura(SPELL_DREAM_STATE))
+            continue;
+
+        allDream.push_back(player);
+
+        // FIX: check this specific player's own AI, not botAI (the executing bot)
+        PlayerbotAI* playerBotAI = GET_PLAYERBOT_AI(player);
+        if (!playerBotAI || playerBotAI->IsRealPlayer())
+            realDream.push_back(player);
     }
 
-    if (dreamBots.empty())
+    if (allDream.empty())
         return false;
 
-    // Sort dreamBots by GUID (lowest first)
-    std::sort(dreamBots.begin(), dreamBots.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
+    std::vector<Player*>& leaderPool = realDream.empty() ? allDream : realDream;
 
-    // Find this bot's index in the sorted list
-    auto it = std::find(dreamBots.begin(), dreamBots.end(), bot);
-    if (it == dreamBots.end())
-        return false;
+    std::sort(leaderPool.begin(), leaderPool.end(),
+              [](Player const* a, Player const* b) { return a->GetGUID() < b->GetGUID(); });
 
-    // Check if all dream bots are stacked within 3f of the current leader (lowest guid)
-    constexpr float STACK_RADIUS = 2.0f;
-    Unit* leader = dreamBots.front();
-    bool allStacked = true;
-    for (Unit* member : dreamBots)
+    Player* leader = leaderPool.front();
+
+    if (!realDream.empty())
     {
-        // Only require stacking for bots, not real players
-        Player* player = member->ToPlayer();
-        if (player && !player->GetSession())  // is a bot
+        constexpr float STACK_DIST = 1.0f;
+        if (bot->GetDistance(leader) > STACK_DIST)
         {
-            if (member->GetDistance(leader) > STACK_RADIUS)
-            {
-                allStacked = false;
-                break;
-            }
-        }
-    }
-
-    // If not all stacked, everyone moves to the leader's position (clouds' position)
-    constexpr float PORTALSTART_TOLERANCE = 1.0f;
-    if (!allStacked)
-    {
-        if (bot != leader)
-        {
-            if (bot->GetDistance(leader) > PORTALSTART_TOLERANCE)
-            {
-                bot->TeleportTo(bot->GetMapId(), leader->GetPositionX(), leader->GetPositionY(), leader->GetPositionZ(),
-                                bot->GetOrientation());
-            }
-        }
-    }
-
-    // All stacked: leader (lowest guid) moves to next cloud, others follow and stack at leader's new position
-    // Find all dream and nightmare clouds
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    std::vector<Creature*> dreamClouds;
-    std::vector<Creature*> nightmareClouds;
-
-    for (int i = 0; i < npcs.size(); ++i)
-    {
-        Unit* unit = botAI->GetUnit(npcs[i]);
-        if (unit && unit->IsAlive())
-        {
-            if (Creature* creature = unit->ToCreature())
-            {
-                if (creature->GetEntry() == NPC_DREAM_CLOUD)
-                    dreamClouds.push_back(creature);
-                else if (creature->GetEntry() == NPC_NIGHTMARE_CLOUD)
-                    nightmareClouds.push_back(creature);
-            }
-        }
-    }
-
-    // Sort clouds by distance
-    std::sort(dreamClouds.begin(), dreamClouds.end(),
-              [this](Creature* a, Creature* b) { return bot->GetExactDist2d(a) < bot->GetExactDist2d(b); });
-
-    std::sort(nightmareClouds.begin(), nightmareClouds.end(),
-              [this](Creature* a, Creature* b) { return bot->GetExactDist2d(a) < bot->GetExactDist2d(b); });
-
-    // Only the leader moves to the next cloud
-    if (bot == leader)
-    {
-        // Use GUID to determine which cloud type to prefer
-        bool preferDream = (bot->GetGUID().GetCounter() % 2 == 0);
-
-        // Check if we're close to any cloud
-        bool atDreamCloud = false;
-        bool atNightmareCloud = false;
-
-        for (Creature* cloud : dreamClouds)
-        {
-            if (bot->GetExactDist2d(cloud) <= 2.0f)
-            {
-                atDreamCloud = true;
-                break;
-            }
-        }
-
-        for (Creature* cloud : nightmareClouds)
-        {
-            if (bot->GetExactDist2d(cloud) <= 2.0f)
-            {
-                atNightmareCloud = true;
-                break;
-            }
-        }
-
-        // If we have emerald vigor, prioritize dream clouds
-        if (bot->HasAura(SPELL_EMERALD_VIGOR))
-        {
-            // If at dream cloud, move to 2nd closest dream cloud or closest nightmare cloud
-            if (atDreamCloud)
-            {
-                Creature* targetCloud = nullptr;
-                // Try 2nd closest dream cloud first
-                if (dreamClouds.size() >= 2 && bot->GetExactDist2d(dreamClouds[1]) > 2.0f)
-                    targetCloud = dreamClouds[1];
-                // Otherwise move to closest nightmare cloud
-                else if (!nightmareClouds.empty() && bot->GetExactDist2d(nightmareClouds[0]) > 2.0f)
-                    targetCloud = nightmareClouds[0];
-
-                if (targetCloud)
-                    MoveTo(targetCloud->GetMapId(), targetCloud->GetPositionX(), targetCloud->GetPositionY(),
-                           targetCloud->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
-            }
-            // If at nightmare cloud, move to closest dream cloud or 2nd closest nightmare cloud
-            else if (atNightmareCloud)
-            {
-                Creature* targetCloud = nullptr;
-                // Try closest dream cloud first
-                if (!dreamClouds.empty() && bot->GetExactDist2d(dreamClouds[0]) > 2.0f)
-                    targetCloud = dreamClouds[0];
-                // Otherwise move to 2nd closest nightmare cloud
-                else if (nightmareClouds.size() >= 2 && bot->GetExactDist2d(nightmareClouds[1]) > 2.0f)
-                    targetCloud = nightmareClouds[1];
-
-                if (targetCloud)
-                    MoveTo(targetCloud->GetMapId(), targetCloud->GetPositionX(), targetCloud->GetPositionY(),
-                           targetCloud->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
-            }
-            // If not at any cloud, move to closest dream cloud or nightmare cloud
-            else
-            {
-                if (!dreamClouds.empty() && bot->GetExactDist2d(dreamClouds[0]) > 2.0f)
-                    MoveTo(dreamClouds[0]->GetMapId(), dreamClouds[0]->GetPositionX(), dreamClouds[0]->GetPositionY(),
-                           dreamClouds[0]->GetPositionZ(), false, false, false, true,
-                           MovementPriority::MOVEMENT_NORMAL);
-                else if (!nightmareClouds.empty() && bot->GetExactDist2d(nightmareClouds[0]) > 2.0f)
-                    MoveTo(nightmareClouds[0]->GetMapId(), nightmareClouds[0]->GetPositionX(),
-                           nightmareClouds[0]->GetPositionY(), nightmareClouds[0]->GetPositionZ(), false, false, false,
-                           true, MovementPriority::MOVEMENT_NORMAL);
-            }
-        }
-        // Otherwise use GUID-based preference
-        else
-        {
-            // If prefer dream clouds based on GUID
-            if (preferDream)
-            {
-                // If at dream cloud, move to 2nd closest dream cloud or closest nightmare cloud
-                if (atDreamCloud)
-                {
-                    Creature* targetCloud = nullptr;
-                    // Try 2nd closest dream cloud first
-                    if (dreamClouds.size() >= 2 && bot->GetExactDist2d(dreamClouds[1]) > 2.0f)
-                        targetCloud = dreamClouds[1];
-                    // Otherwise move to closest nightmare cloud
-                    else if (!nightmareClouds.empty() && bot->GetExactDist2d(nightmareClouds[0]) > 2.0f)
-                        targetCloud = nightmareClouds[0];
-
-                    if (targetCloud)
-                        MoveTo(targetCloud->GetMapId(), targetCloud->GetPositionX(), targetCloud->GetPositionY(),
-                               targetCloud->GetPositionZ(), false, false, false, true,
-                               MovementPriority::MOVEMENT_NORMAL);
-                }
-                // If at nightmare cloud, move to closest dream cloud or 2nd closest nightmare cloud
-                else if (atNightmareCloud)
-                {
-                    Creature* targetCloud = nullptr;
-                    // Try closest dream cloud first
-                    if (!dreamClouds.empty() && bot->GetExactDist2d(dreamClouds[0]) > 2.0f)
-                        targetCloud = dreamClouds[0];
-                    // Otherwise move to 2nd closest nightmare cloud
-                    else if (nightmareClouds.size() >= 2 && bot->GetExactDist2d(nightmareClouds[1]) > 2.0f)
-                        targetCloud = nightmareClouds[1];
-
-                    if (targetCloud)
-                        MoveTo(targetCloud->GetMapId(), targetCloud->GetPositionX(), targetCloud->GetPositionY(),
-                               targetCloud->GetPositionZ(), false, false, false, true,
-                               MovementPriority::MOVEMENT_NORMAL);
-                }
-                // If not at any cloud, move to closest dream cloud or nightmare cloud based on preference
-                else
-                {
-                    if (!dreamClouds.empty() && bot->GetExactDist2d(dreamClouds[0]) > 2.0f)
-                        MoveTo(dreamClouds[0]->GetMapId(), dreamClouds[0]->GetPositionX(),
-                               dreamClouds[0]->GetPositionY(), dreamClouds[0]->GetPositionZ(), false, false, false,
-                               true, MovementPriority::MOVEMENT_NORMAL);
-                    else if (!nightmareClouds.empty() && bot->GetExactDist2d(nightmareClouds[0]) > 2.0f)
-                        MoveTo(nightmareClouds[0]->GetMapId(), nightmareClouds[0]->GetPositionX(),
-                               nightmareClouds[0]->GetPositionY(), nightmareClouds[0]->GetPositionZ(), false, false,
-                               false, true, MovementPriority::MOVEMENT_NORMAL);
-                }
-            }
-            // If prefer nightmare clouds based on GUID
-            else
-            {
-                // If at nightmare cloud, move to 2nd closest nightmare cloud or closest dream cloud
-                if (atNightmareCloud)
-                {
-                    Creature* targetCloud = nullptr;
-                    // Try 2nd closest nightmare cloud first
-                    if (nightmareClouds.size() >= 2 && bot->GetExactDist2d(nightmareClouds[1]) > 2.0f)
-                        targetCloud = nightmareClouds[1];
-                    // Otherwise move to closest dream cloud
-                    else if (!dreamClouds.empty() && bot->GetExactDist2d(dreamClouds[0]) > 2.0f)
-                        targetCloud = dreamClouds[0];
-
-                    if (targetCloud)
-                        MoveTo(targetCloud->GetMapId(), targetCloud->GetPositionX(), targetCloud->GetPositionY(),
-                               targetCloud->GetPositionZ(), false, false, false, true,
-                               MovementPriority::MOVEMENT_NORMAL);
-                }
-                // If at dream cloud, move to closest nightmare cloud or 2nd closest dream cloud
-                else if (atDreamCloud)
-                {
-                    Creature* targetCloud = nullptr;
-                    // Try closest nightmare cloud first
-                    if (!nightmareClouds.empty() && bot->GetExactDist2d(nightmareClouds[0]) > 2.0f)
-                        targetCloud = nightmareClouds[0];
-                    // Otherwise move to 2nd closest dream cloud
-                    else if (dreamClouds.size() >= 2 && bot->GetExactDist2d(dreamClouds[1]) > 2.0f)
-                        targetCloud = dreamClouds[1];
-
-                    if (targetCloud)
-                        MoveTo(targetCloud->GetMapId(), targetCloud->GetPositionX(), targetCloud->GetPositionY(),
-                               targetCloud->GetPositionZ(), false, false, false, true,
-                               MovementPriority::MOVEMENT_NORMAL);
-                }
-                // If not at any cloud, move to closest nightmare cloud or dream cloud based on preference
-                else
-                {
-                    if (!nightmareClouds.empty() && bot->GetExactDist2d(nightmareClouds[0]) > 2.0f)
-                        MoveTo(nightmareClouds[0]->GetMapId(), nightmareClouds[0]->GetPositionX(),
-                               nightmareClouds[0]->GetPositionY(), nightmareClouds[0]->GetPositionZ(), false, false,
-                               false, true, MovementPriority::MOVEMENT_NORMAL);
-                    else if (!dreamClouds.empty() && bot->GetExactDist2d(dreamClouds[0]) > 2.0f)
-                        MoveTo(dreamClouds[0]->GetMapId(), dreamClouds[0]->GetPositionX(),
-                               dreamClouds[0]->GetPositionY(), dreamClouds[0]->GetPositionZ(), false, false, false,
-                               true, MovementPriority::MOVEMENT_NORMAL);
-                }
-            }
-        }
-    }
-    else
-    {
-        // Non-leader bots follow and stack at leader's position
-        if (bot->GetDistance(leader) > PORTALSTART_TOLERANCE)
-        {
-            botAI->Reset();
             bot->TeleportTo(bot->GetMapId(), leader->GetPositionX(), leader->GetPositionY(), leader->GetPositionZ(),
                             bot->GetOrientation());
         }
+        return false;
     }
 
+    // No real players — bot-only logic unchanged
+    std::vector<Creature*> dreamClouds = CollectClouds(NPC_DREAM_CLOUD, leader);
+    std::vector<Creature*> nightmareClouds = CollectClouds(NPC_NIGHTMARE_CLOUD, leader);
+
+    if (dreamClouds.empty() && nightmareClouds.empty())
+        return false;
+
+    Creature* target = SelectNextCloud(dreamClouds, nightmareClouds, leader);
+    if (!target || leader->GetExactDist(target) <= 2.0f)
+        return false;
+
+    bot->TeleportTo(target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
+                    bot->GetOrientation());
+
     return false;
+}
+
+// Collect all live clouds sorted by distance from the given reference unit
+std::vector<Creature*> IccValithriaDreamCloudAction::CollectClouds(uint32 entry, Unit* reference)
+{
+    constexpr float SEARCH_RANGE = 200.0f;
+
+    std::list<Creature*> raw;
+    bot->GetCreatureListWithEntryInGrid(raw, entry, SEARCH_RANGE);
+
+    std::vector<Creature*> result;
+    result.reserve(raw.size());
+    for (Creature* c : raw)
+        if (c && c->IsAlive())
+            result.push_back(c);
+
+    // Sort by reference unit's distance so all bots get the same ordering
+    std::sort(result.begin(), result.end(), [reference](Creature const* a, Creature const* b)
+              { return reference->GetExactDist(a) < reference->GetExactDist(b); });
+
+    return result;
+}
+
+// Choose the next cloud target using the leader's position for all checks
+Creature* IccValithriaDreamCloudAction::SelectNextCloud(std::vector<Creature*> const& dreamClouds, std::vector<Creature*> const& nightmareClouds, Unit* leader)
+{
+    bool const preferDream = leader->HasAura(SPELL_EMERALD_VIGOR) || (leader->GetGUID().GetCounter() % 2 == 0);
+
+    std::vector<Creature*> const& pref = preferDream ? dreamClouds : nightmareClouds;
+    std::vector<Creature*> const& sec = preferDream ? nightmareClouds : dreamClouds;
+
+    bool const atPref = !pref.empty() && leader->GetExactDist(pref[0]) <= 2.0f;
+    bool const atSec = !sec.empty() && leader->GetExactDist(sec[0]) <= 2.0f;
+
+    return PickCloudTarget(pref, sec, atPref, atSec, leader);
+}
+
+Creature* IccValithriaDreamCloudAction::PickCloudTarget(std::vector<Creature*> const& preferred, std::vector<Creature*> const& secondary, bool atPreferred, bool atSecondary, Unit* leader)
+{
+    constexpr float AT_RADIUS = 2.0f;
+
+    if (atPreferred)
+    {
+        if (preferred.size() >= 2 && leader->GetExactDist(preferred[1]) > AT_RADIUS)
+            return preferred[1];
+        if (!secondary.empty() && leader->GetExactDist(secondary[0]) > AT_RADIUS)
+            return secondary[0];
+    }
+    else if (atSecondary)
+    {
+        if (!preferred.empty() && leader->GetExactDist(preferred[0]) > AT_RADIUS)
+            return preferred[0];
+        if (secondary.size() >= 2 && leader->GetExactDist(secondary[1]) > AT_RADIUS)
+            return secondary[1];
+    }
+    else
+    {
+        if (!preferred.empty() && leader->GetExactDist(preferred[0]) > AT_RADIUS)
+            return preferred[0];
+        if (!secondary.empty() && leader->GetExactDist(secondary[0]) > AT_RADIUS)
+            return secondary[0];
+    }
+
+    return nullptr;
 }
 
 // Sindragosa

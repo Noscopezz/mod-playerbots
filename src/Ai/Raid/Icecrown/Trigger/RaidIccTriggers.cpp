@@ -798,15 +798,10 @@ bool IccValithriaHealTrigger::IsActive()
 
 bool IccValithriaDreamCloudTrigger::IsActive()
 {
-    // Only active if we're in dream state
     if (!bot->HasAura(SPELL_DREAM_STATE) || bot->HealthBelowPct(50))
         return false;
 
-    // Find nearest cloud of either type
-    Creature* dreamCloud = bot->FindNearestCreature(NPC_DREAM_CLOUD, 100.0f);
-    Creature* nightmareCloud = bot->FindNearestCreature(NPC_NIGHTMARE_CLOUD, 100.0f);
-
-    return (dreamCloud || nightmareCloud);
+    return true;
 }
 
 //SINDRAGOSA
