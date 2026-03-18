@@ -6402,7 +6402,6 @@ bool IccSindragosaFrostBombAction::HandleRtiMarking(Group* group, int groupIndex
 }
 
 // The Lich King
-// ── LK encounter helpers (file-scope) ───────────────────────────────────────
 
 static bool IsLkShambling(uint32 entry)
 {
@@ -6428,7 +6427,6 @@ static bool IsLkVileSpirit(Unit* unit)
            entry == NPC_VILE_SPIRIT4;
 }
 
-// Shared add-type check — used by both IccLichKingAddsAction and IccLichKingWinterAction
 static bool IsValidLkCollectibleAdd(Unit* unit)
 {
     if (!unit || !unit->IsAlive())
@@ -6656,8 +6654,6 @@ static Position const& SelectClosestOf3(Unit* ref, Position const& p1, Position 
     return p1;
 }
 
-// ── Execute ─────────────────────────────────────────────────────────────────
-
 bool IccLichKingWinterAction::Execute(Event /*event*/)
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
@@ -6711,6 +6707,7 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
 
     // Clear invalid combat targets without stopping movement
     ClearInvalidTarget();
+    HandlePetManagement();
 
     if (botAI->IsTank(bot))
         HandleTankPositioning();
@@ -6721,8 +6718,6 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
 
     return false;
 }
-
-// ── position correction (split from old HandlePositionCorrection) ────────────
 
 void IccLichKingWinterAction::FixPlatformPosition()
 {
@@ -6749,14 +6744,11 @@ void IccLichKingWinterAction::ClearInvalidTarget()
 
     if (doClear)
     {
-        // NOTE: do NOT call botAI->Reset() here — Reset() clears the MotionMaster
-        // every tick, which freezes the bot in place (the main source of the freeze bug)
+
         bot->AttackStop();
         bot->SetTarget(ObjectGuid::Empty);
     }
 }
-
-// ── position helpers ─────────────────────────────────────────────────────────
 
 Position const* IccLichKingWinterAction::GetMainTankPosition()
 {
@@ -6776,8 +6768,6 @@ Position const* IccLichKingWinterAction::GetMainTankRangedPosition()
         return &ICC_LK_FROSTR2_POSITION;
     return &ICC_LK_FROSTR3_POSITION;
 }
-
-// ── defile safety ────────────────────────────────────────────────────────────
 
 bool IccLichKingWinterAction::IsPositionSafeFromDefile(float x, float y, float /*z*/, float minSafeDistance) const
 {
@@ -6817,8 +6807,6 @@ bool IccLichKingWinterAction::IsPositionSafeFromDefile(float x, float y, float /
     return true;
 }
 
-// ── movement ─────────────────────────────────────────────────────────────────
-
 bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, float targetZ, bool forced)
 {
     float const dx = targetX - bot->GetPositionX();
@@ -6830,14 +6818,12 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
 
     MovementPriority const priority = forced ? MovementPriority::MOVEMENT_FORCED : MovementPriority::MOVEMENT_COMBAT;
 
-    // Direct path
     if (IsPositionSafeFromDefile(targetX, targetY, targetZ, 3.0f) && bot->IsWithinLOS(targetX, targetY, targetZ))
     {
         MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, priority, true, false);
         return true;
     }
 
-    // Arc detour around defile — rotate the direction vector in increasing increments
     static constexpr int STEPS = 8;
     static constexpr float STEP_DIST = 8.0f;
 
@@ -6865,13 +6851,43 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
         }
     }
 
-    // Emergency fallback — standing in defile is worse than moving unsafely
+    static constexpr float PROBE_STEP = 5.0f;
+    static constexpr float MIN_PROBE = PROBE_STEP;  // always make at least one step
+
+    for (float probeLen = dist - PROBE_STEP; probeLen >= MIN_PROBE; probeLen -= PROBE_STEP)
+    {
+        float probeX = bot->GetPositionX() + dirX * probeLen;
+        float probeY = bot->GetPositionY() + dirY * probeLen;
+        float probeZ = targetZ;
+        bot->UpdateAllowedPositionZ(probeX, probeY, probeZ);
+
+        if (!IsPositionSafeFromDefile(probeX, probeY, probeZ, 3.0f))
+            continue;
+        if (!bot->IsWithinLOS(probeX, probeY, probeZ))
+            continue;
+
+        MoveTo(bot->GetMapId(), probeX, probeY, probeZ, false, false, false, true, priority, true, false);
+        return false;
+    }
+
+    {
+        float nudgeX = bot->GetPositionX() + dirX * 2.0f;
+        float nudgeY = bot->GetPositionY() + dirY * 2.0f;
+        float nudgeZ = targetZ;
+        bot->UpdateAllowedPositionZ(nudgeX, nudgeY, nudgeZ);
+
+        if (bot->IsWithinLOS(nudgeX, nudgeY, nudgeZ))
+        {
+            MoveTo(bot->GetMapId(), nudgeX, nudgeY, nudgeZ, false, false, false, true,
+                   MovementPriority::MOVEMENT_FORCED, true, false);
+            return false;
+        }
+    }
+
     MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED,
            true, false);
     return false;
 }
-
-// ── add type helpers ─────────────────────────────────────────────────────────
 
 bool IccLichKingWinterAction::IsValidCollectibleAdd(Unit* unit) const
 {
@@ -6887,15 +6903,10 @@ bool IccLichKingWinterAction::IsValidCollectibleAdd(Unit* unit) const
 
 static bool HasFrontalAbility(uint32 entry)
 {
-    // Shambling Horror: Shockwave (frontal cone)
-    // Raging Spirit:    Soul Shriek (frontal cone)
-    // Drudge Ghouls have no dangerous frontal — behind positioning is still safer
     return entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
            entry == NPC_SHAMBLING_HORROR4 || entry == NPC_RAGING_SPIRIT1 || entry == NPC_RAGING_SPIRIT2 ||
            entry == NPC_RAGING_SPIRIT3 || entry == NPC_RAGING_SPIRIT4;
 }
-
-// ── role positioning ─────────────────────────────────────────────────────────
 
 void IccLichKingWinterAction::HandleTankPositioning()
 {
@@ -6903,27 +6914,30 @@ void IccLichKingWinterAction::HandleTankPositioning()
     if (!boss)
         return;
 
-    Position const& tankPos = *GetMainTankPosition();
-    float const distToPos = bot->GetDistance2d(tankPos.GetPositionX(), tankPos.GetPositionY());
+    // Both tanks converge on the same frost position chosen by GetMainTankPosition().
+    // The frost position is one of ICC_LK_FROST1/2/3 (the closest to the main-tank
+    // reference at the time the selection runs).
+    Position const& frostPos = *GetMainTankPosition();
+    static constexpr float FROST_AT_POS_TOLERANCE = 3.0f;
 
     if (botAI->IsMainTank(bot))
     {
-        if (distToPos > 2.0f)
+        float const dist = bot->GetDistance2d(frostPos.GetPositionX(), frostPos.GetPositionY());
+
+        // Step 1 – get to the frost position.
+        if (dist > FROST_AT_POS_TOLERANCE)
         {
-            TryMoveToPosition(tankPos.GetPositionX(), tankPos.GetPositionY(), PLATFORM_Z, true);
+            TryMoveToPosition(frostPos.GetPositionX(), frostPos.GetPositionY(), PLATFORM_Z, true);
             return;
         }
-        HandleMainTankAddManagement(boss, &tankPos);
+
+        // Step 2 – at position: engage nearby adds; never leave.
+        HandleMainTankAddManagement(boss, &frostPos);
     }
     else if (botAI->IsAssistTank(bot))
     {
-        if (distToPos > 15.0f)
-        {
-            // Slight offset so assist tank doesn't stack exactly on main tank
-            TryMoveToPosition(tankPos.GetPositionX() + 3.0f, tankPos.GetPositionY() + 2.0f, PLATFORM_Z, true);
-            return;
-        }
-        HandleAssistTankAddManagement(boss, &tankPos);
+        // Step 1 is handled inside HandleAssistTankAddManagement.
+        HandleAssistTankAddManagement(boss, &frostPos);
     }
 }
 
@@ -6931,38 +6945,80 @@ void IccLichKingWinterAction::HandleMeleePositioning()
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
 
-    // Step 1: ensure we are in the right general area
+    // Step 1 – ensure we are near the frost position area.
     Position const& tankPos = *GetMainTankPosition();
     float const distToPos = bot->GetDistance2d(tankPos.GetPositionX(), tankPos.GetPositionY());
     if (distToPos > 8.0f)
     {
-        // Before Transition (>50%) stay slightly offset; in later phases stack tighter
         bool const latePhase = boss && !boss->HealthAbovePct(50);
         float const offsetX = latePhase ? 0.0f : -5.0f;
         float const offsetY = latePhase ? 0.0f : 5.0f;
-
         TryMoveToPosition(tankPos.GetPositionX() + offsetX, tankPos.GetPositionY() + offsetY, PLATFORM_Z, false);
     }
 
-    // Step 2: position behind the current melee target to avoid frontal cone attacks
-    // (Shambling Horror → Shockwave, Raging Spirit → Soul Shriek)
+    // Step 2 – position behind the current melee target.
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
     if (!currentTarget || !currentTarget->IsAlive())
         return;
-
     if (!IsValidCollectibleAdd(currentTarget) || IsIceSphere(currentTarget->GetEntry()))
         return;
 
-    // Try angles starting directly behind (180°) then flanks, then forward-flanks.
-    // Frontal-cone attacks cover roughly ±45° from the add's facing, so anything
-    // beyond ±45° from behind (i.e. ±135° from facing) is safe.
+    // PRIMARY: mainTank→add vector gives us the reliable "facing" direction of
+    // the add, since it should have aggro on the main tank at the frost position.
+    Unit* mainTank = AI_VALUE(Unit*, "main tank");
+    if (mainTank && mainTank->IsAlive())
+    {
+        // Vector from the main tank to the add.
+        float const vecX = currentTarget->GetPositionX() - mainTank->GetPositionX();
+        float const vecY = currentTarget->GetPositionY() - mainTank->GetPositionY();
+        float const vecLen = std::hypot(vecX, vecY);
+
+        if (vecLen > 0.1f)
+        {
+            float const dirX = vecX / vecLen;
+            float const dirY = vecY / vecLen;
+
+            // Try directly behind (0°) then slight left/right arcs (±20°, ±40°).
+            static constexpr std::array<float, 5> Arcs = {0.0f, 0.35f, -0.35f, 0.70f, -0.70f};
+
+            for (float const arc : Arcs)
+            {
+                float const cosA = std::cos(arc);
+                float const sinA = std::sin(arc);
+                float const rotX = dirX * cosA - dirY * sinA;
+                float const rotY = dirX * sinA + dirY * cosA;
+
+                float const destX = currentTarget->GetPositionX() + rotX * BEHIND_DISTANCE;
+                float const destY = currentTarget->GetPositionY() + rotY * BEHIND_DISTANCE;
+
+                float const dx = destX - bot->GetPositionX();
+                float const dy = destY - bot->GetPositionY();
+                float const dist = std::hypot(dx, dy);
+
+                if (dist < 1.0f)
+                    return;  // already in position
+
+                if (!IsPositionSafeFromDefile(destX, destY, bot->GetPositionZ(), 2.0f))
+                    continue;
+                if (!bot->IsWithinLOS(destX, destY, bot->GetPositionZ()))
+                    continue;
+
+                float const step = std::min(2.0f, dist);
+                TryMoveToPosition(bot->GetPositionX() + (dx / dist) * step, bot->GetPositionY() + (dy / dist) * step,
+                                  bot->GetPositionZ(), false);
+                return;
+            }
+        }
+    }
+
+    // FALLBACK: stored orientation-based angles.
     static constexpr std::array<float, 6> BehindAngles = {
-        float(M_PI),           // 180° — directly behind (safest)
+        float(M_PI),           // 180° — directly behind
         float(M_PI) * 0.75f,   // 135° — left-rear flank
         float(M_PI) * 1.25f,   // 225° — right-rear flank
-        float(M_PI) * 0.5f,    // 90°  — left flank (safe for most cone widths)
+        float(M_PI) * 0.5f,    // 90°  — left flank
         float(M_PI) * 1.5f,    // 270° — right flank
-        float(M_PI) * 0.875f,  // 157° — closer left-rear (fallback)
+        float(M_PI) * 0.875f,  // 157° — closer left-rear
     };
 
     for (float const angleOffset : BehindAngles)
@@ -6976,15 +7032,12 @@ void IccLichKingWinterAction::HandleMeleePositioning()
         float const dist = std::hypot(dx, dy);
 
         if (dist < 1.0f)
-            return;  // Already close enough to this position
-
+            return;
         if (!IsPositionSafeFromDefile(destX, destY, bot->GetPositionZ(), 2.0f))
             continue;
-
         if (!bot->IsWithinLOS(destX, destY, bot->GetPositionZ()))
             continue;
 
-        // Move in 2-yard steps so the bot doesn't overshoot
         float const step = std::min(2.0f, dist);
         TryMoveToPosition(bot->GetPositionX() + (dx / dist) * step, bot->GetPositionY() + (dy / dist) * step,
                           bot->GetPositionZ(), false);
@@ -6996,46 +7049,92 @@ void IccLichKingWinterAction::HandleRangedPositioning()
 {
     Position const& targetPos = *GetMainTankRangedPosition();
 
+    // Evacuate defile first.
     if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
     {
         TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, true);
         return;
     }
 
+    // Move to ranged frost position if not already there.
     if (bot->GetDistance2d(targetPos.GetPositionX(), targetPos.GetPositionY()) > 2.0f)
         TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, false);
 
     if (!botAI->IsRangedDps(bot))
         return;
 
-    // Hunters always target spheres; other ranged only if no hunter is in the group
-    bool const hasHunter = [&]() -> bool
-    {
-        Group* group = bot->GetGroup();
-        if (!group)
-            return false;
-        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
-        {
-            Player* member = itr->GetSource();
-            if (member && member->IsAlive() && member->IsInWorld() && member->getClass() == CLASS_HUNTER)
-                return true;
-        }
-        return false;
-    }();
-
-    if (bot->getClass() != CLASS_HUNTER && hasHunter)
+    Group* group = bot->GetGroup();
+    if (!group)
         return;
 
-    // Keep current sphere target if it is still valid
-    Unit* currentTarget = bot->GetVictim();
-    if (currentTarget && currentTarget->IsAlive() && IsIceSphere(currentTarget->GetEntry()))
+    // Determine sphere slot count by difficulty.
+    Difficulty const diff = bot->GetRaidDifficulty();
+    bool const is25Man = (diff == RAID_DIFFICULTY_25MAN_NORMAL || diff == RAID_DIFFICULTY_25MAN_HEROIC);
+    int const sphereSlots = is25Man ? 4 : 2;
+
+    // Collect alive ranged DPS, split into hunters and others.
+    std::vector<Player*> hunters;
+    std::vector<Player*> otherRanged;
+
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
     {
-        bot->SetFacingToObject(currentTarget);
-        Attack(currentTarget);
+        Player* member = itr->GetSource();
+        if (!member || !member->IsAlive() || !member->IsInWorld())
+            continue;
+        if (!botAI->IsRangedDps(member))
+            continue;
+        if (member->getClass() == CLASS_HUNTER)
+            hunters.push_back(member);
+        else
+            otherRanged.push_back(member);
+    }
+
+    std::sort(hunters.begin(), hunters.end(), [](Player* a, Player* b) { return a->GetGUID() < b->GetGUID(); });
+    std::sort(otherRanged.begin(), otherRanged.end(), [](Player* a, Player* b) { return a->GetGUID() < b->GetGUID(); });
+
+    // Fill sphere slots: hunters first, then lowest-GUID non-hunters.
+    std::vector<Player*> sphereAssignees;
+    for (Player* p : hunters)
+    {
+        if (static_cast<int>(sphereAssignees.size()) >= sphereSlots)
+            break;
+        sphereAssignees.push_back(p);
+    }
+    for (Player* p : otherRanged)
+    {
+        if (static_cast<int>(sphereAssignees.size()) >= sphereSlots)
+            break;
+        sphereAssignees.push_back(p);
+    }
+
+    bool const isSphereAssignee =
+        std::find(sphereAssignees.begin(), sphereAssignees.end(), bot) != sphereAssignees.end();
+
+    if (!isSphereAssignee)
+    {
+        // Not assigned to spheres — drop any sphere target; let normal combat AI
+        // pick up spirits / shambling horrors.
+        Unit* cur = bot->GetVictim();
+        if (cur && IsIceSphere(cur->GetEntry()))
+        {
+            bot->AttackStop();
+            bot->SetTarget(ObjectGuid::Empty);
+        }
         return;
     }
 
-    // Find the lowest-health sphere (most urgent to kill)
+    // Sphere assignee: target the lowest-HP sphere (most urgent to kill).
+
+    // Keep current sphere target if still valid.
+    Unit* cur = bot->GetVictim();
+    if (cur && cur->IsAlive() && IsIceSphere(cur->GetEntry()))
+    {
+        bot->SetFacingToObject(cur);
+        Attack(cur);
+        return;
+    }
+
+    // Scan for the most urgent sphere.
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
     Unit* bestSphere = nullptr;
     float lowestHpPct = 101.0f;
@@ -7062,27 +7161,117 @@ void IccLichKingWinterAction::HandleRangedPositioning()
     }
 }
 
-// ── add management ───────────────────────────────────────────────────────────
-
-void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position const* tankPos)
+void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position const* frostPos)
 {
-    float const distToPos = bot->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY());
-    if (distToPos > 3.0f)
+    // Main tank is already at the frost position.
+    // It only attacks adds that are CLOSE (delivered by the assist tank or spawning
+    // nearby). It never leaves the position to chase far adds.
+    static constexpr float ENGAGE_RADIUS = 12.0f;
+
+    // Does an alive assist tank exist?
+    bool hasAliveAssistTank = false;
+    if (Group* group = bot->GetGroup())
     {
-        TryMoveToPosition(tankPos->GetPositionX(), tankPos->GetPositionY(), PLATFORM_Z, true);
-        return;
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (member && member->IsAlive() && member != bot && botAI->IsAssistTank(member))
+            {
+                hasAliveAssistTank = true;
+                break;
+            }
+        }
     }
 
     GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
-    Unit* currentTarget = bot->GetVictim();
 
-    // Bucket adds by priority:
-    // 1. Attacking a non-tank player (most urgent — rescue)
-    // 2. Not yet attacking us (need to taunt)
-    // 3. Already on us (hold and keep)
-    Unit* priorityAdd = nullptr;
-    Unit* secondaryAdd = nullptr;
-    Unit* fallbackAdd = nullptr;
+    // Bucket adds at this position into priority tiers.
+    Unit* priorityAdd = nullptr;   // attacking a non-tank player
+    Unit* secondaryAdd = nullptr;  // not yet attacking us
+    Unit* fallbackAdd = nullptr;   // already on us
+
+    for (ObjectGuid const& guid : targets)
+    {
+        Unit* add = botAI->GetUnit(guid);
+        if (!IsValidCollectibleAdd(add))
+            continue;
+
+        float const addDist = bot->GetDistance(add);
+
+        // When an assist tank is alive: ignore adds that haven't been herded here yet.
+        // When no assist tank: allow a longer reach so the main tank can pick up strays.
+        float const maxEngageDist = hasAliveAssistTank ? ENGAGE_RADIUS : 25.0f;
+        if (addDist > maxEngageDist)
+            continue;
+
+        Unit* victim = add->GetVictim();
+
+        if (victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer()))
+        {
+            if (!priorityAdd || addDist < bot->GetDistance(priorityAdd))
+                priorityAdd = add;
+        }
+        else if (victim != bot)
+        {
+            if (!secondaryAdd || addDist < bot->GetDistance(secondaryAdd))
+                secondaryAdd = add;
+        }
+        else
+        {
+            if (!fallbackAdd || addDist < bot->GetDistance(fallbackAdd))
+                fallbackAdd = add;
+        }
+    }
+
+    Unit* targetAdd = priorityAdd ? priorityAdd : secondaryAdd ? secondaryAdd : fallbackAdd;
+
+    if (!targetAdd)
+    {
+        Unit* cur = bot->GetVictim();
+        if (cur && !IsValidCollectibleAdd(cur))
+            bot->SetTarget(ObjectGuid::Empty);
+        return;
+    }
+
+    float const addDist = bot->GetDistance(targetAdd);
+
+    if (addDist <= ENGAGE_RADIUS || !hasAliveAssistTank)
+    {
+        // Attack (or pull toward position when solo-tanking).
+        if (addDist > ENGAGE_RADIUS && !hasAliveAssistTank)
+        {
+            // Gently step toward the add but only halfway, pulling it back here.
+            float const dx = targetAdd->GetPositionX() - frostPos->GetPositionX();
+            float const dy = targetAdd->GetPositionY() - frostPos->GetPositionY();
+            float const len = std::hypot(dx, dy);
+            float const pullRatio = std::min(1.0f, 15.0f / (len > 0.1f ? len : 0.1f));
+            float const midX = frostPos->GetPositionX() + dx * pullRatio;
+            float const midY = frostPos->GetPositionY() + dy * pullRatio;
+            TryMoveToPosition(midX, midY, PLATFORM_Z, false);
+        }
+
+        bot->SetTarget(targetAdd->GetGUID());
+        bot->SetFacingToObject(targetAdd);
+        Attack(targetAdd);
+    }
+    else
+    {
+        // Has assist tank and add is still far: face the add, generate threat via
+        // ranged abilities while it is herded here.
+        bot->SetTarget(targetAdd->GetGUID());
+        bot->SetFacingToObject(targetAdd);
+        Attack(targetAdd);
+    }
+}
+
+void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position const* frostPos)
+{
+    float const distToFrost = bot->GetDistance2d(frostPos->GetPositionX(), frostPos->GetPositionY());
+    static constexpr float FROST_AT_POS_TOLERANCE = 3.0f;
+    GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
+
+    std::vector<Unit*> addsOnUs;   // adds currently attacking the assist tank
+    std::vector<Unit*> addsLoose;  // adds not controlled by any tank
 
     for (ObjectGuid const& guid : targets)
     {
@@ -7092,81 +7281,70 @@ void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
 
         Unit* victim = add->GetVictim();
 
-        if (victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer()))
+        if (victim == bot)
         {
-            if (!priorityAdd || bot->GetDistance(add) < bot->GetDistance(priorityAdd))
-                priorityAdd = add;
-            continue;
+            addsOnUs.push_back(add);
         }
-
-        if (victim != bot)
+        else if (!victim || (victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer())))
         {
-            if (!secondaryAdd || bot->GetDistance(add) < bot->GetDistance(secondaryAdd))
-                secondaryAdd = add;
-            continue;
+            addsLoose.push_back(add);
         }
-
-        if (!fallbackAdd || bot->GetDistance(add) < bot->GetDistance(fallbackAdd))
-            fallbackAdd = add;
+        // Adds already on the main tank: skip.
     }
 
-    Unit* targetAdd = priorityAdd ? priorityAdd : secondaryAdd ? secondaryAdd : fallbackAdd;
-
-    if (!targetAdd)
+    // ── PHASE 3: herding ─────────────────────────────────────────────────────
+    if (!addsOnUs.empty())
     {
-        if (currentTarget && !IsValidCollectibleAdd(currentTarget))
+        // Move back to frost position so the main tank can pick up these adds.
+        if (distToFrost > FROST_AT_POS_TOLERANCE)
+        {
+            TryMoveToPosition(frostPos->GetPositionX(), frostPos->GetPositionY(), PLATFORM_Z, false);
+        }
+
+        // Keep attacking to maintain aggro during the herd.
+        Unit* currentTarget = bot->GetVictim();
+        bool keepCurrent = false;
+        if (currentTarget && currentTarget->IsAlive())
+        {
+            for (Unit* add : addsOnUs)
+            {
+                if (add->GetGUID() == currentTarget->GetGUID())
+                {
+                    keepCurrent = true;
+                    break;
+                }
+            }
+        }
+        if (!keepCurrent)
+            currentTarget = addsOnUs.front();
+
+        if (currentTarget)
+        {
+            bot->SetTarget(currentTarget->GetGUID());
+            bot->SetFacingToObject(currentTarget);
+            Attack(currentTarget);
+        }
+        return;
+    }
+
+    // ── PHASE 1: get to frost position ───────────────────────────────────────
+    if (distToFrost > FROST_AT_POS_TOLERANCE)
+    {
+        TryMoveToPosition(frostPos->GetPositionX(), frostPos->GetPositionY(), PLATFORM_Z, false);
+
+        Unit* cur = bot->GetVictim();
+        if (cur && !IsValidCollectibleAdd(cur))
             bot->SetTarget(ObjectGuid::Empty);
         return;
     }
 
-    float const addDist = bot->GetDistance(targetAdd);
-
-    if (addDist < 10.0f)
-    {
-        if (currentTarget != targetAdd)
-        {
-            bot->SetTarget(targetAdd->GetGUID());
-            bot->SetFacingToObject(targetAdd);
-            Attack(targetAdd);
-        }
-    }
-    else
-    {
-        // Pull add toward the tank position rather than chasing it across the platform
-        static constexpr float MAX_PULL = 15.0f;
-        float const pullRatio = std::min(1.0f, MAX_PULL / addDist);
-
-        float const adjustedX =
-            tankPos->GetPositionX() + (targetAdd->GetPositionX() - tankPos->GetPositionX()) * pullRatio;
-        float const adjustedY =
-            tankPos->GetPositionY() + (targetAdd->GetPositionY() - tankPos->GetPositionY()) * pullRatio;
-
-        TryMoveToPosition(adjustedX, adjustedY, PLATFORM_Z, false);
-        bot->SetTarget(targetAdd->GetGUID());
-        bot->SetFacingToObject(targetAdd);
-        Attack(targetAdd);
-    }
-}
-
-void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position const* tankPos)
-{
-    Unit* mainTank = AI_VALUE(Unit*, "main tank");
-    if (!mainTank)
-        return;
-
-    GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
-
-    // Priority 1: adds attacking non-tank players
+    // ── PHASE 2: at position, go collect the nearest loose add ───────────────
     Unit* targetAdd = nullptr;
     float closestDist = FLT_MAX;
-    bool found = false;
 
-    for (ObjectGuid const& guid : targets)
+    // Priority 1: add attacking a non-tank (rescue).
+    for (Unit* add : addsLoose)
     {
-        Unit* add = botAI->GetUnit(guid);
-        if (!IsValidCollectibleAdd(add))
-            continue;
-
         Unit* victim = add->GetVictim();
         if (victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer()))
         {
@@ -7175,21 +7353,14 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
             {
                 closestDist = dist;
                 targetAdd = add;
-                found = true;
             }
         }
     }
-
-    // Priority 2: adds not already on the main tank
-    if (!found)
+    // Priority 2: any loose add.
+    if (!targetAdd)
     {
-        closestDist = FLT_MAX;
-        for (ObjectGuid const& guid : targets)
+        for (Unit* add : addsLoose)
         {
-            Unit* add = botAI->GetUnit(guid);
-            if (!IsValidCollectibleAdd(add) || add->GetVictim() == mainTank)
-                continue;
-
             float const dist = bot->GetDistance(add);
             if (dist < closestDist)
             {
@@ -7201,35 +7372,115 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
 
     if (targetAdd)
     {
-        bool const addFarFromTank = targetAdd->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY()) > 10.0f;
-
-        if (addFarFromTank)
-        {
-            // Intercept halfway between the add and the tank position
-            float const midX = (targetAdd->GetPositionX() + tankPos->GetPositionX()) * 0.5f;
-            float const midY = (targetAdd->GetPositionY() + tankPos->GetPositionY()) * 0.5f;
-
-            if (bot->GetDistance2d(midX, midY) > 3.0f)
-                TryMoveToPosition(midX, midY, PLATFORM_Z, false);
-        }
-        else if (closestDist > 5.0f)
+        bot->SetTarget(targetAdd->GetGUID());
+        if (closestDist > 3.0f)
         {
             TryMoveToPosition(targetAdd->GetPositionX(), targetAdd->GetPositionY(), PLATFORM_Z, false);
         }
-
-        bot->SetTarget(targetAdd->GetGUID());
-        bot->SetFacingToObject(targetAdd);
-        Attack(targetAdd);
+        else
+        {
+            bot->SetFacingToObject(targetAdd);
+            Attack(targetAdd);
+        }
+        return;
     }
-    else
-    {
-        // No adds to collect — stay near main tank
-        if (bot->GetDistance2d(mainTank) > 2.0f)
-            TryMoveToPosition(mainTank->GetPositionX(), mainTank->GetPositionY(), PLATFORM_Z, false);
 
-        Unit* currentTarget = bot->GetVictim();
-        if (currentTarget && !IsValidCollectibleAdd(currentTarget))
-            bot->SetTarget(ObjectGuid::Empty);
+    // No loose adds — stand at position (slight offset so we don't clip the main tank).
+    if (distToFrost > 2.0f)
+        TryMoveToPosition(frostPos->GetPositionX() + 2.0f, frostPos->GetPositionY() + 1.0f, PLATFORM_Z, false);
+
+    Unit* cur = bot->GetVictim();
+    if (cur && !IsValidCollectibleAdd(cur))
+        bot->SetTarget(ObjectGuid::Empty);
+}
+
+void IccLichKingWinterAction::HandlePetManagement()
+{
+    Pet* pet = bot->GetPet();
+    if (!pet || !pet->IsAlive())
+        return;
+
+    CharmInfo* ci = pet->GetCharmInfo();
+    if (!ci)
+        return;
+
+    // ── Healers: passive follow ───────────────────────────────────────────────
+    if (botAI->IsHeal(bot))
+    {
+        // Only issue the command when the pet is not already following.
+        if (ci->GetCommandState() != COMMAND_FOLLOW)
+        {
+            pet->AttackStop();
+            pet->InterruptNonMeleeSpells(false);
+            pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST, pet->GetFollowAngle());
+            ci->SetCommandState(COMMAND_FOLLOW);
+            ci->SetIsCommandAttack(false);
+            ci->SetIsAtStay(false);
+            ci->SetIsReturning(true);
+            ci->SetIsCommandFollow(true);
+            ci->SetIsFollowing(false);
+            ci->RemoveStayPosition();
+        }
+        return;
+    }
+
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    Unit* bestTarget = nullptr;
+    int bestPriority = -1;
+    float bestHpPct = 101.0f;
+
+    for (ObjectGuid const& guid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(guid);
+        if (!unit || !unit->IsAlive())
+            continue;
+
+        uint32 const entry = unit->GetEntry();
+        int priority = -1;
+
+        if (entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
+            entry == NPC_SHAMBLING_HORROR4)
+            priority = 3;
+        else if (entry == NPC_RAGING_SPIRIT1 || entry == NPC_RAGING_SPIRIT2 || entry == NPC_RAGING_SPIRIT3 ||
+                 entry == NPC_RAGING_SPIRIT4)
+            priority = 2;
+        else if (IsIceSphere(entry))
+            priority = 1;
+
+        if (priority < 0)
+            continue;
+
+        float const hp = unit->GetHealthPct();
+
+        if (priority > bestPriority || (priority == bestPriority && hp < bestHpPct))
+        {
+            bestPriority = priority;
+            bestHpPct = hp;
+            bestTarget = unit;
+        }
+    }
+
+    // No valid add target exists yet (or all are dead).
+    if (!bestTarget)
+        return;
+
+    // Skip if the pet is already attacking the right unit.
+    if (pet->GetVictim() == bestTarget)
+        return;
+
+    // Command the pet to attack.
+    ci->SetIsCommandAttack(true);
+    ci->SetIsAtStay(false);
+    ci->SetIsReturning(false);
+    ci->SetIsCommandFollow(false);
+    ci->SetIsFollowing(false);
+    ci->SetCommandState(COMMAND_ATTACK);
+
+    if (pet->IsAIEnabled)
+    {
+        pet->AI()->AttackStart(bestTarget);
+        pet->GetMotionMaster()->MoveChase(bestTarget);
     }
 }
 
@@ -7648,7 +7899,6 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
             addsElsewhere.push_back(unit);
     }
 
-    // ── Collect adds not yet on us ────────────────────────────────────────────
     if (!addsElsewhere.empty())
     {
         // Shamblings take absolute priority; fall back to closest add
@@ -7705,7 +7955,6 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
         return;
     }
 
-    // ── All adds are on us — hold position ───────────────────────────────────
     Position const& holdPos = IsHeroicLk(diff) ? ICC_LICH_KING_ASSISTHC_POSITION : ICC_LICH_KING_ADDS_POSITION;
 
     if (bot->GetExactDist2d(holdPos) > 2.0f)
@@ -7717,7 +7966,6 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
     if (addsOnUs.empty())
         return;
 
-    // Stable target selection: keep current target if still valid
     Unit* currentTarget = bot->GetVictim();
     bool keepCurrent = false;
 
@@ -7737,7 +7985,6 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
     {
         currentTarget = nullptr;
 
-        // Shambling Horror first, then any other add
         for (Unit* add : addsOnUs)
         {
             if (IsLkShambling(add->GetEntry()))
@@ -7888,7 +8135,6 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
             defiles.push_back(unit);
     }
 
-    // ── Active defile avoidance ───────────────────────────────────────────────
     if (!defiles.empty())
     {
         float const botX = bot->GetPositionX();
@@ -7959,7 +8205,6 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
         }
     }
 
-    // ── Defile cast: pre-spread positioning ───────────────────────────────────
     if (!boss->HasUnitState(UNIT_STATE_CASTING) || !boss->FindCurrentSpellBySpellId(DEFILE_CAST_ID))
         return;
 
@@ -8231,8 +8476,6 @@ void IccLichKingAddsAction::HandleVileSpiritMechanics()
     }
 }
 
-// IsValkyr and IsValidCollectibleAdd are now file-scope — keep thin wrappers
-// for any external callers still using the method form
 bool IccLichKingAddsAction::IsValkyr(Unit* unit) { return IsLkValkyr(unit); }
 
 std::vector<size_t> IccLichKingAddsAction::CalculateBalancedGroupSizes(size_t totalAssist, size_t numValkyrs)

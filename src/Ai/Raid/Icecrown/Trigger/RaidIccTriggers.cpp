@@ -1142,15 +1142,12 @@ bool IccLichKingWinterTrigger::IsActive()
 
 bool IccLichKingAddsTrigger::IsActive()
 {
-    // Val'kyr carry — no actions meaningful while airborne
     if (bot->HasAura(SPELL_HARVEST_SOUL_VALKYR))
         return false;
 
-    // Necrotic Plague action handles movement — suppress adds action to avoid conflict
     if (botAI->HasAura("Necrotic Plague", bot))
         return false;
 
-    // Heroic spirit phase (Terenas present regardless of boss state)
     if (bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f) ||
         bot->FindNearestCreature(NPC_TERENAS_MENETHIL, 55.0f))
         return true;

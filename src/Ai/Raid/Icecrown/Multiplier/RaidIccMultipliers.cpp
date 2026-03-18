@@ -656,7 +656,6 @@ float IccSindragosaMultiplier::GetValue(Action* action)
 
 float IccLichKingAddsMultiplier::GetValue(Action* action)
 {
-    // ── Heroic spirit phase ──────────────────────────────────────────────────
     Unit* terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
     if (terenas)
     {
@@ -686,17 +685,14 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
         return 1.0f;
     }
 
-    // ── No Lich King present ─────────────────────────────────────────────────
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (!boss)
     {
-        // Still suppress Starfall to avoid griefing outside the encounter
         if (dynamic_cast<CastStarfallAction*>(action))
             return 0.0f;
         return 1.0f;
     }
 
-    // ── Necrotic Plague cure timing ──────────────────────────────────────────
     // Allow cure actions only after a brief delay so the plague can spread once
     if (dynamic_cast<CurePartyMemberAction*>(action) || dynamic_cast<CastCleanseDiseaseAction*>(action) ||
         dynamic_cast<CastCleanseDiseaseOnPartyAction*>(action) ||
@@ -776,7 +772,6 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
         return allDelivered ? 1.0f : 0.0f;
     }
 
-    // ── Global movement suppressions ─────────────────────────────────────────
     if (dynamic_cast<CombatFormationMoveAction*>(action) || dynamic_cast<FollowAction*>(action) ||
         dynamic_cast<CastBlinkBackAction*>(action) || dynamic_cast<CastDisengageAction*>(action))
         return 0.0f;
@@ -785,7 +780,6 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
     if (dynamic_cast<FleeAction*>(action) && bot->getClass() != CLASS_HUNTER)
         return 0.0f;
 
-    // ── Phase 1: suppress AOE spam while adds are alive ──────────────────────
     if (boss->HealthAbovePct(71))
     {
         if (!botAI->IsTank(bot) && dynamic_cast<CastConsecrationAction*>(action))
@@ -801,7 +795,6 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
             return 0.0f;
     }
 
-    // ── Remorseless Winter phase ──────────────────────────────────────────────
     auto const hasWinterAura = [&]() -> bool
     {
         return boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
@@ -864,7 +857,6 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
         }
     }
 
-    // ── Defile avoidance (ranged only) ────────────────────────────────────────
     if (botAI->IsRanged(bot) && !botAI->GetAura("Harvest Soul", bot, false, false))
     {
         GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
@@ -885,7 +877,6 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
             return 0.0f;
     }
 
-    // ── Assist tank must focus adds in phase 1, not the boss ─────────────────
     if (botAI->IsAssistTank(bot) && boss->HealthAbovePct(71))
     {
         Unit* currentTarget = AI_VALUE(Unit*, "current target");

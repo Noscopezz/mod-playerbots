@@ -644,25 +644,23 @@ public:
         : AttackAction(botAI, "icc lich king winter") {}
     bool Execute(Event event) override;
 
-    // Public — called by multiplier for defile safety checks
     bool IsPositionSafeFromDefile(float x, float y, float z, float minSafeDistance) const;
     bool IsValidCollectibleAdd(Unit* unit) const;
-
     void HandleTankPositioning();
     void HandleMeleePositioning();
     void HandleRangedPositioning();
     void HandleMainTankAddManagement(Unit* boss, Position const* tankPos);
     void HandleAssistTankAddManagement(Unit* boss, Position const* tankPos);
+    void HandlePetManagement();
 
 private:
     static constexpr float PLATFORM_Z      = 840.857f;
     static constexpr float BEHIND_DISTANCE = 4.0f;
-
-    void            FixPlatformPosition();
-    void            ClearInvalidTarget();
+    void FixPlatformPosition();
+    void ClearInvalidTarget();
     Position const* GetMainTankPosition();
     Position const* GetMainTankRangedPosition();
-    bool            TryMoveToPosition(float x, float y, float z, bool forced = true);
+    bool TryMoveToPosition(float x, float y, float z, bool forced = true);
 };
 
 class IccLichKingAddsAction : public AttackAction
