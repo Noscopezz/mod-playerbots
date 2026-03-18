@@ -623,70 +623,76 @@ class IccSindragosaTankSwapPositionAction : public AttackAction
 //LK
 class IccLichKingShadowTrapAction : public MovementAction
 {
-    public:
-        IccLichKingShadowTrapAction(PlayerbotAI* botAI)
-            : MovementAction(botAI, "icc lich king shadow trap") {}
-        bool Execute(Event event) override;
+public:
+    IccLichKingShadowTrapAction(PlayerbotAI* botAI)
+        : MovementAction(botAI, "icc lich king shadow trap") {}
+    bool Execute(Event event) override;
 };
 
 class IccLichKingNecroticPlagueAction : public MovementAction
 {
-    public:
-        IccLichKingNecroticPlagueAction(PlayerbotAI* botAI)
-            : MovementAction(botAI, "icc lich king necrotic plague") {}
-        bool Execute(Event event) override;
+public:
+    IccLichKingNecroticPlagueAction(PlayerbotAI* botAI)
+        : MovementAction(botAI, "icc lich king necrotic plague") {}
+    bool Execute(Event event) override;
 };
 
 class IccLichKingWinterAction : public AttackAction
 {
-    public:
-        IccLichKingWinterAction(PlayerbotAI* botAI)
-            : AttackAction(botAI, "icc lich king winter") {}
-        bool Execute(Event event) override;
+public:
+    IccLichKingWinterAction(PlayerbotAI* botAI)
+        : AttackAction(botAI, "icc lich king winter") {}
+    bool Execute(Event event) override;
 
-        void HandlePositionCorrection();
-        bool IsValidCollectibleAdd(Unit* unit);
-        bool IsPositionSafeFromDefile(float x, float y, float z, float minSafeDistance);
-        void HandleTankPositioning();
-        void HandleMeleePositioning();
-        void HandleRangedPositioning();
-        void HandleMainTankAddManagement(Unit* boss, const Position* tankPos);
-        void HandleAssistTankAddManagement(Unit* boss, const Position* tankPos);
+    // Public — called by multiplier for defile safety checks
+    bool IsPositionSafeFromDefile(float x, float y, float z, float minSafeDistance) const;
+    bool IsValidCollectibleAdd(Unit* unit) const;
 
-    private:
-        const Position* GetMainTankPosition();
-        const Position* GetMainTankRangedPosition();
-        bool TryMoveToPosition(float targetX, float targetY, float targetZ, bool isForced = true);
+    void HandleTankPositioning();
+    void HandleMeleePositioning();
+    void HandleRangedPositioning();
+    void HandleMainTankAddManagement(Unit* boss, Position const* tankPos);
+    void HandleAssistTankAddManagement(Unit* boss, Position const* tankPos);
+
+private:
+    static constexpr float PLATFORM_Z      = 840.857f;
+    static constexpr float BEHIND_DISTANCE = 4.0f;
+
+    void            FixPlatformPosition();
+    void            ClearInvalidTarget();
+    Position const* GetMainTankPosition();
+    Position const* GetMainTankRangedPosition();
+    bool            TryMoveToPosition(float x, float y, float z, bool forced = true);
 };
 
 class IccLichKingAddsAction : public AttackAction
 {
-    public:
-        IccLichKingAddsAction(PlayerbotAI* botAI)
-            : AttackAction(botAI, "icc lich king adds") {}
-        bool Execute(Event event) override;
+public:
+    IccLichKingAddsAction(PlayerbotAI* botAI)
+        : AttackAction(botAI, "icc lich king adds") {}
+    bool Execute(Event event) override;
 
-        void HandleTeleportationFixes(Difficulty diff, Unit* terenasMenethilHC);
-        bool HandleSpiritBombAvoidance(Difficulty diff, Unit* terenasMenethilHC);
-        void HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenasMenethilHC);
-        void HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenasMenethilHC);
-        bool HandleQuakeMechanics(Unit* boss);
-        void HandleShamblingHorrors(Unit* boss, bool hasPlague);
-        bool HandleAssistTankAddManagement(Unit* boss, Difficulty diff);
-        void HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff);
-        void HandleMainTankTargeting(Unit* boss, Difficulty diff);
-        void HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague);
-        void HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff);
-        void HandleDefileMechanics(Unit* boss, Difficulty diff);
-        void HandleValkyrMechanics(Difficulty diff);
-        std::vector<size_t> CalculateBalancedGroupSizes(size_t totalAssist, size_t numValkyrs);
-        size_t GetAssignedValkyrIndex(size_t assistIndex, const std::vector<size_t>& groupSizes);
-        std::string GetRTIValueForValkyr(size_t valkyrIndex);
-        void HandleValkyrMarking(const std::vector<Unit*>& grabbingValkyrs, Difficulty diff);
-        void HandleValkyrAssignment(const std::vector<Unit*>& grabbingValkyrs);
-        void ApplyCCToValkyr(Unit* valkyr);
-        bool IsValkyr(Unit* unit);
-        void HandleVileSpiritMechanics();
+    void HandleTeleportationFixes(Difficulty diff, Unit* terenas);
+    bool HandleSpiritBombAvoidance(Difficulty diff, Unit* terenas);
+    void HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas);
+    void HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas);
+    bool HandleQuakeMechanics(Unit* boss);
+    void HandleShamblingHorrors(Unit* boss, bool hasPlague);
+    void HandleAssistTankAddManagement(Unit* boss, Difficulty diff);
+    void HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff);
+    void HandleMainTankTargeting(Unit* boss, Difficulty diff);
+    void HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague);
+    void HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff);
+    void HandleDefileMechanics(Unit* boss, Difficulty diff);
+    void HandleValkyrMechanics(Difficulty diff);
+    void HandleValkyrMarking(std::vector<Unit*> const& valkyrs, Difficulty diff);
+    void HandleValkyrAssignment(std::vector<Unit*> const& valkyrs);
+    void HandleVileSpiritMechanics();
+    void ApplyCCToValkyr(Unit* valkyr);
+    bool IsValkyr(Unit* unit);
+    std::vector<size_t> CalculateBalancedGroupSizes(size_t totalAssist, size_t numValkyrs);
+    size_t GetAssignedValkyrIndex(size_t assistIndex, std::vector<size_t> const& groupSizes);
+    std::string GetRTIValueForValkyr(size_t valkyrIndex);
 };
 
 #endif

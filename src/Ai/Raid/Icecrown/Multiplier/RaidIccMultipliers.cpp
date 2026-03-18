@@ -76,7 +76,7 @@ float IccAddsDbsMultiplier::GetValue(Action* action)
         dynamic_cast<CastStarfallAction*>(action) || dynamic_cast<FanOfKnivesAction*>(action) ||
         dynamic_cast<CastWhirlwindAction*>(action) || dynamic_cast<CastMindSearAction*>(action) ||
         dynamic_cast<CombatFormationMoveAction*>(action) || dynamic_cast<FollowAction*>(action) ||
-        dynamic_cast<FleeAction*>(action))
+        dynamic_cast<FleeAction*>(action) || dynamic_cast<CastArmyOfTheDeadAction*>(action))
         return 0.0f;
 
     if (botAI->IsRanged(bot))
@@ -169,7 +169,7 @@ float IccRotfaceMultiplier::GetValue(Action* action)
     if (dynamic_cast<FleeAction*>(action) && !(bot->getClass() == CLASS_HUNTER))
         return 0.0f;
 
-    if (dynamic_cast<CastBlinkBackAction*>(action))
+    if (dynamic_cast<CastBlinkBackAction*>(action) || dynamic_cast<CastArmyOfTheDeadAction*>(action))
         return 0.0f;
 
     if (botAI->IsAssistTank(bot) && (dynamic_cast<AttackRtiTargetAction*>(action) || dynamic_cast<TankAssistAction*>(action)))
@@ -656,167 +656,195 @@ float IccSindragosaMultiplier::GetValue(Action* action)
 
 float IccLichKingAddsMultiplier::GetValue(Action* action)
 {
-    Unit* terenasMenethilHC = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
-
-    if (!terenasMenethilHC)
-        if (dynamic_cast<CastStarfallAction*>(action))
-            return 0.0f;
-
-    if (terenasMenethilHC)
+    // ── Heroic spirit phase ──────────────────────────────────────────────────
+    Unit* terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
+    if (terenas)
     {
-        Unit* mainTank = AI_VALUE(Unit*, "main tank");
-
-        if (!botAI->IsMainTank(bot) && mainTank && bot->GetExactDist2d(mainTank->GetPositionX(), mainTank->GetPositionY()) < 2.0f)
-        {
-            if (dynamic_cast<MovementAction*>(action))
-                return 0.0f;
-        }
-
-        if (botAI->IsMelee(bot) || (bot->getClass() == CLASS_WARLOCK))
+        // Warlocks and melee stay functional (movement + adds action only)
+        if (botAI->IsMelee(bot) || bot->getClass() == CLASS_WARLOCK)
         {
             if (dynamic_cast<MovementAction*>(action) || dynamic_cast<IccLichKingAddsAction*>(action))
                 return 1.0f;
-            else
-                return 0.0f;
+            return 0.0f;
         }
 
+        // Main tank near another tank: suppress movement jitter
+        Unit* mainTank = AI_VALUE(Unit*, "main tank");
+        if (!botAI->IsMainTank(bot) && mainTank && bot->GetExactDist2d(mainTank) < 2.0f &&
+            dynamic_cast<MovementAction*>(action))
+            return 0.0f;
+
+        // Suppress all these regardless of role
         if (dynamic_cast<CombatFormationMoveAction*>(action) || dynamic_cast<FollowAction*>(action) ||
             dynamic_cast<FleeAction*>(action) || dynamic_cast<CastBlinkBackAction*>(action) ||
             dynamic_cast<CastDisengageAction*>(action) || dynamic_cast<CastChargeAction*>(action) ||
             dynamic_cast<CastFeralChargeBearAction*>(action) || dynamic_cast<CastIceBlockAction*>(action) ||
-            dynamic_cast<CastRevivePetAction*>(action) || dynamic_cast<TankAssistAction*>(action))
+            dynamic_cast<CastRevivePetAction*>(action) || dynamic_cast<TankAssistAction*>(action) ||
+            dynamic_cast<CastArmyOfTheDeadAction*>(action))
             return 0.0f;
+
+        return 1.0f;
     }
 
+    // ── No Lich King present ─────────────────────────────────────────────────
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (!boss)
+    {
+        // Still suppress Starfall to avoid griefing outside the encounter
+        if (dynamic_cast<CastStarfallAction*>(action))
+            return 0.0f;
         return 1.0f;
+    }
 
-    // Handle cure actions
+    // ── Necrotic Plague cure timing ──────────────────────────────────────────
+    // Allow cure actions only after a brief delay so the plague can spread once
     if (dynamic_cast<CurePartyMemberAction*>(action) || dynamic_cast<CastCleanseDiseaseAction*>(action) ||
         dynamic_cast<CastCleanseDiseaseOnPartyAction*>(action) ||
         dynamic_cast<CastCleanseSpiritCurseOnPartyAction*>(action) || dynamic_cast<CastCleanseSpiritAction*>(action))
     {
+        Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
+        if (!boss)
+            return 1.0f;
+
         Group* group = bot->GetGroup();
         if (!group)
             return 1.0f;
 
-        // Check if any bot in the group has plague
-        bool anyBotHasPlague = false;
-        ObjectGuid plaguedPlayerGuid;  // Track who has plague
+        static constexpr float DELIVER_RANGE = 3.0f;
+        static constexpr std::array<uint32, 4> HorrorEntries = {NPC_SHAMBLING_HORROR1, NPC_SHAMBLING_HORROR2,
+                                                                NPC_SHAMBLING_HORROR3, NPC_SHAMBLING_HORROR4};
+
+        // Check whether any Shambling Horror is alive anywhere in the encounter
+        auto const anyHorrorAlive = [&]() -> bool
+        {
+            GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+            for (ObjectGuid const& guid : npcs)
+            {
+                Unit* unit = botAI->GetUnit(guid);
+                if (!unit || !unit->IsAlive())
+                    continue;
+
+                uint32 const entry = unit->GetEntry();
+                if (entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 ||
+                    entry == NPC_SHAMBLING_HORROR3 || entry == NPC_SHAMBLING_HORROR4)
+                    return true;
+            }
+            return false;
+        };
+
+        bool anyPlagued = false;
+        bool allDelivered = true;
+
         for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
         {
-            if (Player* member = ref->GetSource())
+            Player* member = ref->GetSource();
+            if (!member || !member->IsAlive())
+                continue;
+
+            if (!botAI->HasAura("Necrotic Plague", member))
+                continue;
+
+            anyPlagued = true;
+
+            bool nearHorror = false;
+            for (uint32 const entry : HorrorEntries)
             {
-                if (botAI->HasAura("Necrotic Plague", member))
+                Creature* horror = member->FindNearestCreature(entry, DELIVER_RANGE);
+                if (horror && horror->IsAlive())
                 {
-                    anyBotHasPlague = true;
-                    plaguedPlayerGuid = member->GetGUID();  // Changed from GetObjectGuid()
+                    nearHorror = true;
                     break;
                 }
             }
+
+            if (!nearHorror)
+            {
+                allDelivered = false;
+                break;
+            }
         }
 
-        uint32 currentTime = getMSTime();
-
-        // Reset state if no one has plague
-        if (!anyBotHasPlague)
-        {
-            std::lock_guard<std::mutex> lock(g_plagueMutex);  // Properly initialized
-            g_plagueTimes.clear();
-            g_allowCure.clear();
+        if (!anyPlagued)
             return 1.0f;
-        }
 
-        {                                                     // New scope for lock_guard
-            std::lock_guard<std::mutex> lock(g_plagueMutex);  // Properly initialized
+        // No Horror alive at all — allow immediate dispel to prevent
+        // uncontrolled spread wiping the raid
+        if (!anyHorrorAlive())
+            return 1.0f;
 
-            // Start timer if this is a new plague
-            if (g_plagueTimes.find(plaguedPlayerGuid) == g_plagueTimes.end())
-            {
-                g_plagueTimes[plaguedPlayerGuid] = currentTime;
-                g_allowCure[plaguedPlayerGuid] = false;
-                return 0.0f;
-            }
-
-            // Once we allow cure, keep allowing it until plague is gone
-            if (g_allowCure[plaguedPlayerGuid])
-            {
-                return 1.0f;
-            }
-
-            // Check if enough time has passed (2,5 seconds)
-            if (currentTime - g_plagueTimes[plaguedPlayerGuid] >= 2500)
-            {
-                g_allowCure[plaguedPlayerGuid] = true;
-                return 1.0f;
-            }
-        }  // lock_guard is automatically released here
-
-        return 0.0f;
+        // Horrors exist but not everyone has delivered yet — suppress cures
+        return allDelivered ? 1.0f : 0.0f;
     }
 
-    if (dynamic_cast<FleeAction*>(action) && (bot->getClass() != CLASS_HUNTER))
-        return 0.0f;
-
+    // ── Global movement suppressions ─────────────────────────────────────────
     if (dynamic_cast<CombatFormationMoveAction*>(action) || dynamic_cast<FollowAction*>(action) ||
         dynamic_cast<CastBlinkBackAction*>(action) || dynamic_cast<CastDisengageAction*>(action))
         return 0.0f;
 
-    if (boss && !boss->HealthBelowPct(71))
+    // Hunters may flee (kite mechanics); everyone else stays put
+    if (dynamic_cast<FleeAction*>(action) && bot->getClass() != CLASS_HUNTER)
+        return 0.0f;
+
+    // ── Phase 1: suppress AOE spam while adds are alive ──────────────────────
+    if (boss->HealthAbovePct(71))
     {
-        if (!botAI->IsTank(bot))
-            if (dynamic_cast<CastConsecrationAction*>(action))
-                return 0.0f;
+        if (!botAI->IsTank(bot) && dynamic_cast<CastConsecrationAction*>(action))
+            return 0.0f;
 
         if (dynamic_cast<DpsAoeAction*>(action) || dynamic_cast<CastHurricaneAction*>(action) ||
             dynamic_cast<CastVolleyAction*>(action) || dynamic_cast<CastBlizzardAction*>(action) ||
             dynamic_cast<CastStarfallAction*>(action) || dynamic_cast<FanOfKnivesAction*>(action) ||
             dynamic_cast<CastWhirlwindAction*>(action) || dynamic_cast<CastMindSearAction*>(action) ||
             dynamic_cast<CastMagmaTotemAction*>(action) || dynamic_cast<CastFlamestrikeAction*>(action) ||
-            dynamic_cast<CastExplosiveTrapAction*>(action) || dynamic_cast<CastExplosiveShotAction*>(action))
+            dynamic_cast<CastExplosiveTrapAction*>(action) || dynamic_cast<CastExplosiveShotAction*>(action) ||
+            dynamic_cast<CastArmyOfTheDeadAction*>(action))
             return 0.0f;
     }
 
-    Unit* currentTarget = AI_VALUE(Unit*, "current target");
-
-    bool hasWinterAura = false;
-    if (boss && (boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
-                 boss->HasAura(SPELL_REMORSELESS_WINTER3) || boss->HasAura(SPELL_REMORSELESS_WINTER4)))
-        hasWinterAura = true;
-
-    bool hasWinter2Aura = false;
-    if (boss && (boss->HasAura(SPELL_REMORSELESS_WINTER5) || boss->HasAura(SPELL_REMORSELESS_WINTER6) ||
-                 boss->HasAura(SPELL_REMORSELESS_WINTER7) || boss->HasAura(SPELL_REMORSELESS_WINTER8)))
-        hasWinter2Aura = true;
-
-    bool isCasting = false;
-    if (boss && boss->HasUnitState(UNIT_STATE_CASTING))
-        isCasting = true;
-
-    bool isWinter = false;
-    if (boss && (boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER1) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER2) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER5) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER6) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER3) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER4) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER7) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER8)))
-        isWinter = true;
-
-    if (hasWinterAura || hasWinter2Aura || (isCasting && isWinter))
+    // ── Remorseless Winter phase ──────────────────────────────────────────────
+    auto const hasWinterAura = [&]() -> bool
     {
+        return boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER3) || boss->HasAura(SPELL_REMORSELESS_WINTER4) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER5) || boss->HasAura(SPELL_REMORSELESS_WINTER6) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER7) || boss->HasAura(SPELL_REMORSELESS_WINTER8);
+    };
+
+    auto const isCastingWinter = [&]() -> bool
+    {
+        if (!boss->HasUnitState(UNIT_STATE_CASTING))
+            return false;
+
+        return boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER1) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER2) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER3) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER4) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER5) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER6) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER7) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER8);
+    };
+
+    if (hasWinterAura() || isCastingWinter())
+    {
+        // Winter action and facing take priority
         if (dynamic_cast<IccLichKingWinterAction*>(action) || dynamic_cast<SetFacingTargetAction*>(action))
             return 1.0f;
 
-        if (botAI->IsAssistTank(bot) && dynamic_cast<TankAssistAction*>(action))
-            return 0.0f;
-
+        // Adds action is suppressed during winter
         if (dynamic_cast<IccLichKingAddsAction*>(action))
             return 0.0f;
 
-        if (currentTarget && boss && bot->GetDistance2d(boss->GetPositionX(), boss->GetPositionY()) > 50.0f && currentTarget == boss)
+        if (dynamic_cast<CastArmyOfTheDeadAction*>(action))
+            return 0.0f;
+
+        // Assist tank should not pick up adds independently during winter
+        if (botAI->IsAssistTank(bot) && dynamic_cast<TankAssistAction*>(action))
+            return 0.0f;
+
+        // Suppress movement/attack toward the boss if we are far away
+        Unit* currentTarget = AI_VALUE(Unit*, "current target");
+        if (currentTarget && currentTarget == boss && bot->GetDistance2d(boss) > 50.0f)
         {
             if (dynamic_cast<AttackRtiTargetAction*>(action) || dynamic_cast<ReachSpellAction*>(action) ||
                 dynamic_cast<ReachMeleeAction*>(action) || dynamic_cast<ReachTargetAction*>(action) ||
@@ -825,46 +853,43 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
                 return 0.0f;
         }
 
-        if (currentTarget && (currentTarget->GetEntry() == NPC_ICE_SPHERE1 || currentTarget->GetEntry() == NPC_ICE_SPHERE2 ||
-            currentTarget->GetEntry() == NPC_ICE_SPHERE3 || currentTarget->GetEntry() == NPC_ICE_SPHERE4))
+        // Suppress movement/attack while targeting an ice sphere (ranged handle it)
+        if (currentTarget &&
+            (currentTarget->GetEntry() == NPC_ICE_SPHERE1 || currentTarget->GetEntry() == NPC_ICE_SPHERE2 ||
+             currentTarget->GetEntry() == NPC_ICE_SPHERE3 || currentTarget->GetEntry() == NPC_ICE_SPHERE4))
         {
             if (dynamic_cast<MovementAction*>(action) || dynamic_cast<ReachMeleeAction*>(action) ||
                 dynamic_cast<TankAssistAction*>(action))
                 return 0.0f;
         }
-
     }
 
+    // ── Defile avoidance (ranged only) ────────────────────────────────────────
     if (botAI->IsRanged(bot) && !botAI->GetAura("Harvest Soul", bot, false, false))
     {
-        // Check for defile presence
-        GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+        GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
         bool defilePresent = false;
-        for (auto& npc : npcs)
+        for (ObjectGuid const& guid : npcs)
         {
-            Unit* unit = botAI->GetUnit(npc);
-            if (unit && unit->IsAlive() && unit->GetEntry() == DEFILE_NPC_ID)  // Defile entry
+            Unit* unit = botAI->GetUnit(guid);
+            if (unit && unit->IsAlive() && unit->GetEntry() == DEFILE_NPC_ID)
             {
                 defilePresent = true;
                 break;
             }
         }
 
-        // Only disable movement if defile is present
-        if (defilePresent && (
-            dynamic_cast<CombatFormationMoveAction*>(action) ||
-            dynamic_cast<FollowAction*>(action) ||
-            dynamic_cast<FleeAction*>(action) ||
-            dynamic_cast<MoveRandomAction*>(action) ||
-            dynamic_cast<MoveFromGroupAction*>(action)))
-        {
+        if (defilePresent && (dynamic_cast<CombatFormationMoveAction*>(action) || dynamic_cast<FollowAction*>(action) ||
+                              dynamic_cast<FleeAction*>(action) || dynamic_cast<MoveRandomAction*>(action) ||
+                              dynamic_cast<MoveFromGroupAction*>(action)))
             return 0.0f;
-        }
     }
 
-    if (botAI->IsAssistTank(bot) && boss && !boss->HealthBelowPct(71) && currentTarget == boss)
+    // ── Assist tank must focus adds in phase 1, not the boss ─────────────────
+    if (botAI->IsAssistTank(bot) && boss->HealthAbovePct(71))
     {
-        if (dynamic_cast<AttackRtiTargetAction*>(action))
+        Unit* currentTarget = AI_VALUE(Unit*, "current target");
+        if (currentTarget && currentTarget == boss && dynamic_cast<AttackRtiTargetAction*>(action))
             return 0.0f;
     }
 

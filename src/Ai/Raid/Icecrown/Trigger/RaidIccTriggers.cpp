@@ -1102,9 +1102,10 @@ bool IccLichKingShadowTrapTrigger::IsActive()
 
 bool IccLichKingNecroticPlagueTrigger::IsActive()
 {
-    bool hasPlague = botAI->HasAura("Necrotic Plague", bot);
+    if (!AI_VALUE2(Unit*, "find target", "the lich king"))
+        return false;
 
-    return hasPlague;
+    return botAI->HasAura("Necrotic Plague", bot);
 }
 
 bool IccLichKingWinterTrigger::IsActive()
@@ -1113,60 +1114,46 @@ bool IccLichKingWinterTrigger::IsActive()
     if (!boss)
         return false;
 
-    // Check for either Remorseless Winter
-    bool hasWinterAura = false;
-    if (boss && (boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
-        boss->HasAura(SPELL_REMORSELESS_WINTER3) || boss->HasAura(SPELL_REMORSELESS_WINTER4)))
-        hasWinterAura = true;
+    auto const hasWinterAura = [&]() -> bool
+    {
+        return boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER3) || boss->HasAura(SPELL_REMORSELESS_WINTER4) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER5) || boss->HasAura(SPELL_REMORSELESS_WINTER6) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER7) || boss->HasAura(SPELL_REMORSELESS_WINTER8);
+    };
 
-    bool hasWinter2Aura = false;
-    if (boss && (boss->HasAura(SPELL_REMORSELESS_WINTER5) || boss->HasAura(SPELL_REMORSELESS_WINTER6) ||
-        boss->HasAura(SPELL_REMORSELESS_WINTER7) || boss->HasAura(SPELL_REMORSELESS_WINTER8)))
-        hasWinter2Aura = true;
+    auto const isCastingWinter = [&]() -> bool
+    {
+        if (!boss->HasUnitState(UNIT_STATE_CASTING))
+            return false;
 
-    bool isCasting = false;
-    if (boss && boss->HasUnitState(UNIT_STATE_CASTING))
-        isCasting = true;
+        return boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER1) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER2) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER3) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER4) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER5) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER6) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER7) ||
+               boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER8);
+    };
 
-    bool isWinter = false;
-    if (boss && boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER1) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER2) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER5) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER6) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER3) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER4) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER7) ||
-        boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER8))
-        isWinter = true;
-
-    if (hasWinterAura || hasWinter2Aura)
-        return true;
-
-    if (isCasting && isWinter)
-        return true;
-
-    return false;
+    return hasWinterAura() || isCastingWinter();
 }
 
 bool IccLichKingAddsTrigger::IsActive()
 {
-    Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
-
-    bool hasPlague = botAI->HasAura("Necrotic Plague", bot);
-    if (hasPlague)
+    // Val'kyr carry — no actions meaningful while airborne
+    if (bot->HasAura(SPELL_HARVEST_SOUL_VALKYR))
         return false;
 
-    Unit* terenasMenethilHC = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
-    Unit* terenasMenethil = bot->FindNearestCreature(NPC_TERENAS_MENETHIL, 55.0f);
-
-    if (terenasMenethilHC)
-        return true;
-
-     if (terenasMenethil)
-        return true;
-
-    if (!boss)
+    // Necrotic Plague action handles movement — suppress adds action to avoid conflict
+    if (botAI->HasAura("Necrotic Plague", bot))
         return false;
 
-    return true;
+    // Heroic spirit phase (Terenas present regardless of boss state)
+    if (bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f) ||
+        bot->FindNearestCreature(NPC_TERENAS_MENETHIL, 55.0f))
+        return true;
+
+    return AI_VALUE2(Unit*, "find target", "the lich king") != nullptr;
 }

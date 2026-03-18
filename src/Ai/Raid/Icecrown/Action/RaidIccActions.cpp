@@ -6402,184 +6402,261 @@ bool IccSindragosaFrostBombAction::HandleRtiMarking(Group* group, int groupIndex
 }
 
 // The Lich King
+// ── LK encounter helpers (file-scope) ───────────────────────────────────────
+
+static bool IsLkShambling(uint32 entry)
+{
+    return entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
+           entry == NPC_SHAMBLING_HORROR4;
+}
+
+static bool IsLkValkyr(Unit* unit)
+{
+    if (!unit)
+        return false;
+    uint32 const entry = unit->GetEntry();
+    return entry == NPC_VALKYR_SHADOWGUARD1 || entry == NPC_VALKYR_SHADOWGUARD2 || entry == NPC_VALKYR_SHADOWGUARD3 ||
+           entry == NPC_VALKYR_SHADOWGUARD4;
+}
+
+static bool IsLkVileSpirit(Unit* unit)
+{
+    if (!unit)
+        return false;
+    uint32 const entry = unit->GetEntry();
+    return entry == NPC_VILE_SPIRIT1 || entry == NPC_VILE_SPIRIT2 || entry == NPC_VILE_SPIRIT3 ||
+           entry == NPC_VILE_SPIRIT4;
+}
+
+// Shared add-type check — used by both IccLichKingAddsAction and IccLichKingWinterAction
+static bool IsValidLkCollectibleAdd(Unit* unit)
+{
+    if (!unit || !unit->IsAlive())
+        return false;
+
+    uint32 const entry = unit->GetEntry();
+    return entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
+           entry == NPC_SHAMBLING_HORROR4 || entry == NPC_RAGING_SPIRIT1 || entry == NPC_RAGING_SPIRIT2 ||
+           entry == NPC_RAGING_SPIRIT3 || entry == NPC_RAGING_SPIRIT4 || entry == NPC_DRUDGE_GHOUL1 ||
+           entry == NPC_DRUDGE_GHOUL2 || entry == NPC_DRUDGE_GHOUL3 || entry == NPC_DRUDGE_GHOUL4;
+}
+
+static float GetDefileEffectiveRadius(Unit const* defile, Difficulty diff)
+{
+    static constexpr float BASE_RADIUS = 6.0f;
+
+    for (uint32 const auraId : DEFILE_AURAS)
+    {
+        Aura const* grow = defile->GetAura(auraId);
+        if (!grow)
+            continue;
+
+        float const multiplier =
+            (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_10MAN_NORMAL) ? 1.4f : 0.95f;
+
+        return BASE_RADIUS + grow->GetStackAmount() * multiplier;
+    }
+    return BASE_RADIUS;
+}
+
+static bool IsHeroicLk(Difficulty diff)
+{
+    return diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC;
+}
+
 bool IccLichKingShadowTrapAction::Execute(Event /*event*/)
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (!boss || !botAI->IsTank(bot))
         return false;
 
-    Difficulty diff = bot->GetRaidDifficulty();
+    Difficulty const diff = bot->GetRaidDifficulty();
 
-    if (sPlayerbotAIConfig.EnableICCBuffs && diff && (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    if (sPlayerbotAIConfig.EnableICCBuffs && diff &&
+        (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
     {
-        //-------CHEAT-------
         if (!bot->HasAura(SPELL_EXPERIENCED))
             bot->AddAura(SPELL_EXPERIENCED, bot);
 
         if (!bot->HasAura(SPELL_AGEIS_OF_DALARAN))
             bot->AddAura(SPELL_AGEIS_OF_DALARAN, bot);
 
-        if (!bot->HasAura(SPELL_NO_THREAT) && !botAI->IsTank(bot))
-            bot->AddAura(SPELL_NO_THREAT, bot);
-
         if (!bot->HasAura(SPELL_PAIN_SUPPRESION))
             bot->AddAura(SPELL_PAIN_SUPPRESION, bot);
-        //-------CHEAT-------
     }
 
-    // Define ICC_LICH_POSITION and circle parameters
-    const float X = ICC_LICH_KING_ASSISTHC_POSITION.GetPositionX();
-    const float Y = ICC_LICH_KING_ASSISTHC_POSITION.GetPositionY();
-    const float Z = ICC_LICH_KING_ASSISTHC_POSITION.GetPositionZ();
-    const float CIRCLE_RADIUS = 20.0f;
-    const float SAFE_DISTANCE = 12.0f;
-    const int TEST_POSITIONS = 16;
-    const float ANGLE_STEP = 2 * M_PI / TEST_POSITIONS;
+    static constexpr float CIRCLE_RADIUS = 20.0f;
+    static constexpr float SAFE_DISTANCE = 12.0f;
+    static constexpr float SEARCH_DISTANCE = SAFE_DISTANCE + 5.0f;
+    static constexpr int TEST_POSITIONS = 16;
+    static constexpr float ANGLE_STEP = 2.0f * float(M_PI) / TEST_POSITIONS;
 
-    // Find all nearby shadow traps
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    std::vector<ObjectGuid> trapGuids;
-    for (auto& npc : npcs)
+    float const centerX = ICC_LICH_KING_ASSISTHC_POSITION.GetPositionX();
+    float const centerY = ICC_LICH_KING_ASSISTHC_POSITION.GetPositionY();
+    float const centerZ = ICC_LICH_KING_ASSISTHC_POSITION.GetPositionZ();
+
+    // Collect shadow traps within search range
+    GuidVector const npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    std::vector<Unit*> nearbyTraps;
+
+    for (ObjectGuid const& guid : npcs)
     {
-        Unit* unit = botAI->GetUnit(npc);
+        Unit* unit = botAI->GetUnit(guid);
         if (!unit || !unit->IsAlive() || unit->GetEntry() != NPC_SHADOW_TRAP)
             continue;
-        if (bot->GetDistance(unit) < SAFE_DISTANCE + 5.0f)
-        {
-            trapGuids.push_back(npc);
-        }
+
+        if (bot->GetDistance(unit) < SEARCH_DISTANCE)
+            nearbyTraps.push_back(unit);
     }
 
-    if (trapGuids.empty())
+    if (nearbyTraps.empty())
         return false;
 
-    // Check if current position is already safe
-    bool currentPositionSafe = true;
-    for (auto& trapGuid : trapGuids)
+    // Check whether the current position is already safe
+    auto isSafePosition = [&](float x, float y) -> bool
     {
-        Unit* trap = botAI->GetUnit(trapGuid);
-        if (!trap)
-            continue;
-        if (bot->GetDistance(trap) < SAFE_DISTANCE)
-        {
-            currentPositionSafe = false;
-            break;
-        }
-    }
+        for (Unit const* trap : nearbyTraps)
+            if (trap->GetDistance2d(x, y) < SAFE_DISTANCE)
+                return false;
+        return true;
+    };
 
-    // If current position is safe, no need to move
-    if (currentPositionSafe)
+    if (isSafePosition(bot->GetPositionX(), bot->GetPositionY()))
         return false;
 
-    // Calculate current angle relative to ICC_LICH_POSITION
-    float currentX = bot->GetPositionX() - X;
-    float currentY = bot->GetPositionY() - Y;
-    float currentAngle = atan2(currentY, currentX);
+    // Walk clockwise around the centre circle to find the nearest safe spot
+    float const currentAngle = std::atan2(bot->GetPositionY() - centerY, bot->GetPositionX() - centerX);
 
-    // Test clockwise positions first, then opposite position
-    std::vector<float> testAngles;
-    // Add clockwise positions
-    for (int i = 1; i <= TEST_POSITIONS; ++i)
+    for (int i = 1; i <= TEST_POSITIONS + 1; ++i)
     {
-        testAngles.push_back(currentAngle - (ANGLE_STEP * i));
-    }
-    // Add opposite position as fallback
-    testAngles.push_back(currentAngle + M_PI);
+        // Last iteration tests the diametrically opposite point as a fallback
+        float const testAngle = (i <= TEST_POSITIONS) ? currentAngle - ANGLE_STEP * i : currentAngle + float(M_PI);
 
-    // Test all positions
-    for (float testAngle : testAngles)
-    {
-        // Calculate position on circle
-        float testX = X + cos(testAngle) * CIRCLE_RADIUS;
-        float testY = Y + sin(testAngle) * CIRCLE_RADIUS;
-        float testZ = Z;
+        float testX = centerX + std::cos(testAngle) * CIRCLE_RADIUS;
+        float testY = centerY + std::sin(testAngle) * CIRCLE_RADIUS;
+        float testZ = centerZ;
 
-        // Update Z coordinate for terrain
         bot->UpdateAllowedPositionZ(testX, testY, testZ);
 
-        // Check line of sight
         if (!bot->IsWithinLOS(testX, testY, testZ))
             continue;
 
-        // Check if this position is safe from all traps
-        bool isSafe = true;
-        for (auto& trapGuid : trapGuids)
-        {
-            Unit* trap = botAI->GetUnit(trapGuid);
-            if (!trap)
-                continue;
-            float distToTrap = trap->GetDistance2d(testX, testY);
-            if (distToTrap < SAFE_DISTANCE)
-            {
-                isSafe = false;
-                break;
-            }
-        }
+        if (!isSafePosition(testX, testY))
+            continue;
 
-        // Found a safe spot - move there
-        if (isSafe)
-        {
-            // Remove botAI->Reset() as it might interfere with movement
-            MoveTo(bot->GetMapId(), testX, testY, testZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED,
-                   true, false);
-        }
+        return MoveTo(bot->GetMapId(), testX, testY, testZ, false, false, false, true,
+                      MovementPriority::MOVEMENT_FORCED, true, false);
     }
 
-    // No safe position found
     return false;
 }
 
 bool IccLichKingNecroticPlagueAction::Execute(Event /*event*/)
 {
-    bool hasPlague = botAI->HasAura("Necrotic Plague", bot);
-    // Only execute if we have the plague
-    if (!hasPlague)
+    if (!botAI->HasAura("Necrotic Plague", bot))
         return false;
 
-    // Find closest shambling horror
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    Unit* closestHorror = nullptr;
-    float minHorrorDist = 100.0f;
+    static constexpr float DELIVER_RANGE = 3.0f;
+    static constexpr std::array<uint32, 4> HorrorEntries = {NPC_SHAMBLING_HORROR1, NPC_SHAMBLING_HORROR2,
+                                                            NPC_SHAMBLING_HORROR3, NPC_SHAMBLING_HORROR4};
 
-    for (auto& npc : npcs)
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    Unit* closestHorror = nullptr;
+    float minDist = 150.0f;
+
+    for (ObjectGuid const& guid : npcs)
     {
-        Unit* unit = botAI->GetUnit(npc);
+        Unit* unit = botAI->GetUnit(guid);
         if (!unit || !unit->IsAlive())
             continue;
 
-        uint32 entry = unit->GetEntry();
-        if (entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 ||
-            entry == NPC_SHAMBLING_HORROR3 || entry == NPC_SHAMBLING_HORROR4)
+        uint32 const entry = unit->GetEntry();
+        bool const isHorror = entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 ||
+                              entry == NPC_SHAMBLING_HORROR3 || entry == NPC_SHAMBLING_HORROR4;
+
+        if (!isHorror)
+            continue;
+
+        float const dist = bot->GetDistance(unit);
+        if (dist < minDist)
         {
-            float distance = bot->GetDistance(unit);
-            if (distance < minHorrorDist)
-            {
-                minHorrorDist = distance;
-                closestHorror = unit;
-            }
+            minDist = dist;
+            closestHorror = unit;
         }
     }
 
-    // If we found a shambling horror, handle movement
-    if (closestHorror)
+    // No alive Horror exists — stop moving and hold position so healers
+    // can dispel immediately. Keeping the plague active with no valid
+    // delivery target risks a raid wipe via uncontrolled spread.
+    if (!closestHorror)
     {
-        // If we're close enough, stop and return success
-        if (minHorrorDist <= 2.0f)
-        {
-            bot->StopMoving();
-            return true;
-        }
-
-        // We need to move to the horror
-        botAI->Reset();
-        MoveTo(closestHorror, 2.0f, MovementPriority::MOVEMENT_FORCED);
-
-        return false;  // Still moving, not finished yet
+        bot->StopMoving();
+        bot->AttackStop();
+        bot->SetTarget(ObjectGuid::Empty);
+        return true;
     }
 
-    // No shambling horror found, but we have plague - this shouldn't happen normally
-    return false;
+    // Already in delivery range — hold position for dispel
+    if (minDist <= DELIVER_RANGE)
+    {
+        bot->StopMoving();
+        return true;
+    }
+
+    // Move toward the Horror, suppressing combat so we don't get sidetracked
+    bot->AttackStop();
+    bot->SetTarget(ObjectGuid::Empty);
+
+    return MoveTo(bot->GetMapId(), closestHorror->GetPositionX(), closestHorror->GetPositionY(),
+                  closestHorror->GetPositionZ(), false, false, false, false, MovementPriority::MOVEMENT_FORCED, true,
+                  false);
 }
+
+static bool IsIceSphere(uint32 entry)
+{
+    return entry == NPC_ICE_SPHERE1 || entry == NPC_ICE_SPHERE2 || entry == NPC_ICE_SPHERE3 || entry == NPC_ICE_SPHERE4;
+}
+
+static Unit* FindWinterReferenceUnit(Player* bot)
+{
+    Group* group = bot->GetGroup();
+    if (!group)
+        return bot;
+
+    Unit* reference = nullptr;
+    ObjectGuid lowestGuid;
+
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+    {
+        Player* member = itr->GetSource();
+        if (!member || !member->IsAlive() || !member->IsInWorld())
+            continue;
+
+        if (lowestGuid.IsEmpty() || member->GetGUID() < lowestGuid)
+        {
+            lowestGuid = member->GetGUID();
+            reference = member;
+        }
+    }
+
+    return reference ? reference : bot;
+}
+
+static Position const& SelectClosestOf3(Unit* ref, Position const& p1, Position const& p2, Position const& p3)
+{
+    float const d1 = ref->GetDistance2d(p1.GetPositionX(), p1.GetPositionY());
+    float const d2 = ref->GetDistance2d(p2.GetPositionX(), p2.GetPositionY());
+    float const d3 = ref->GetDistance2d(p3.GetPositionX(), p3.GetPositionY());
+
+    if (d2 < d1 && d2 < d3)
+        return p2;
+    if (d3 < d1 && d3 < d2)
+        return p3;
+    return p1;
+}
+
+// ── Execute ─────────────────────────────────────────────────────────────────
 
 bool IccLichKingWinterAction::Execute(Event /*event*/)
 {
@@ -6587,1262 +6664,912 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
     if (!boss)
         return false;
 
-    Unit* iceSphere = AI_VALUE2(Unit*, "find target", "ice sphere");
-
-    bool isVictim = false;
-    if (iceSphere && iceSphere->GetVictim() == bot && !botAI->IsTank(bot))
-        isVictim = true;
-
-    // First priority: Get out of Defile if we're in one
-    if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
+    Difficulty const diff = bot->GetRaidDifficulty();
+    if (sPlayerbotAIConfig.EnableICCBuffs && diff &&
+        (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
     {
-        // Find nearest safe position (use tank position as fallback)
-        const Position* safePos = botAI->IsTank(bot) ? GetMainTankPosition() : GetMainTankRangedPosition();
-        TryMoveToPosition(safePos->GetPositionX(), safePos->GetPositionY(), 840.857f, true);
-        return true;
-    }
-
-    float currentDistance = bot->GetDistance2d(boss);
-
-    Difficulty diff = bot->GetRaidDifficulty();
-
-    if (sPlayerbotAIConfig.EnableICCBuffs && diff && (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
-    {
-        //------CHEAT-------
         if (!bot->HasAura(SPELL_EXPERIENCED))
             bot->AddAura(SPELL_EXPERIENCED, bot);
-
         if (!bot->HasAura(SPELL_AGEIS_OF_DALARAN))
             bot->AddAura(SPELL_AGEIS_OF_DALARAN, bot);
-
-        if (!bot->HasAura(SPELL_NO_THREAT) && !botAI->IsTank(bot))
+        if (!botAI->IsTank(bot) && !bot->HasAura(SPELL_NO_THREAT))
             bot->AddAura(SPELL_NO_THREAT, bot);
-
         if (!bot->HasAura(SPELL_PAIN_SUPPRESION))
             bot->AddAura(SPELL_PAIN_SUPPRESION, bot);
-        //------CHEAT-------
     }
 
-    if (currentDistance < 35.0f && !bot->HasAura(SPELL_NITRO_BOOSTS))
+    // Speed boost to help escape the inward push
+    if (bot->GetDistance2d(boss) < 35.0f && !bot->HasAura(SPELL_NITRO_BOOSTS))
         bot->AddAura(SPELL_NITRO_BOOSTS, bot);
 
-    // Handle group target management
+    // Winter is not a marking phase — clear skull
     if (Group* group = bot->GetGroup())
     {
-        const ObjectGuid currentSkullTarget = group->GetTargetIcon(7);
-        if (!currentSkullTarget.IsEmpty())
+        if (!group->GetTargetIcon(7).IsEmpty())
             group->SetTargetIcon(7, bot->GetGUID(), ObjectGuid::Empty);
     }
 
-    if (isVictim)
-        MoveFromGroup(6.0f);
+    // Teleport back onto the platform if the engine pushed us through
+    FixPlatformPosition();
 
-    if (!isVictim)
+    // Defile evacuation has absolute priority over everything else
+    if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
     {
-        HandlePositionCorrection();
+        Position const& safePos = botAI->IsTank(bot) ? *GetMainTankPosition() : *GetMainTankRangedPosition();
 
-        // Handle tank positioning and add management FIRST
-        HandleTankPositioning();  // New method that handles both main and assist tanks
-
-        // Then handle other roles
-        HandleMeleePositioning();
-        HandleRangedPositioning();
+        TryMoveToPosition(safePos.GetPositionX(), safePos.GetPositionY(), PLATFORM_Z, true);
+        return true;
     }
+
+    // If an ice sphere is chasing this bot, leave the group so nobody else gets hit
+    Unit* iceSphere = AI_VALUE2(Unit*, "find target", "ice sphere");
+    if (iceSphere && iceSphere->GetVictim() == bot && !botAI->IsTank(bot))
+    {
+        MoveFromGroup(6.0f);
+        return false;
+    }
+
+    // Clear invalid combat targets without stopping movement
+    ClearInvalidTarget();
+
+    if (botAI->IsTank(bot))
+        HandleTankPositioning();
+    else if (!botAI->IsRanged(bot))
+        HandleMeleePositioning();
+    else
+        HandleRangedPositioning();
 
     return false;
 }
 
-void IccLichKingWinterAction::HandlePositionCorrection()
+// ── position correction (split from old HandlePositionCorrection) ────────────
+
+void IccLichKingWinterAction::FixPlatformPosition()
 {
-    Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
+    if (std::abs(bot->GetPositionZ() - PLATFORM_Z) > 1.0f)
+        bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), PLATFORM_Z, bot->GetOrientation());
+}
+
+void IccLichKingWinterAction::ClearInvalidTarget()
+{
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
+    if (!currentTarget)
+        return;
 
-    // Fix underground bug
-    if (abs(bot->GetPositionZ() - 840.857f) > 1.0f)
-        bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), 840.857f, bot->GetOrientation());
-
-    // Reset targeting for specific conditions
-    if (currentTarget && boss && currentTarget == boss)
-        botAI->Reset();
-
-    if (botAI->IsTank(bot) && currentTarget &&
-        ((currentTarget->GetEntry() == NPC_ICE_SPHERE1 || currentTarget->GetEntry() == NPC_ICE_SPHERE2 ||
-          currentTarget->GetEntry() == NPC_ICE_SPHERE3 || currentTarget->GetEntry() == NPC_ICE_SPHERE4)))
-        botAI->Reset();
-}
-
-const Position* IccLichKingWinterAction::GetMainTankPosition()
-{
-    Unit* mainTank = AI_VALUE(Unit*, "main tank");
-    if (!mainTank)
-    {
-        // FIXED: When no main tank, use the bot with lowest GUID to determine position
-        // This ensures ALL bots make the same decision collectively
-
-        Unit* referenceBot = nullptr;
-        ObjectGuid lowestGuid;
-
-        // Find the bot with lowest GUID in the group
-        Group* group = bot->GetGroup();
-        if (group)
-        {
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            {
-                Player* member = itr->GetSource();
-                if (member && member->IsAlive() && member->IsInWorld())
-                {
-                    if (lowestGuid.IsEmpty() || member->GetGUID() < lowestGuid)
-                    {
-                        lowestGuid = member->GetGUID();
-                        referenceBot = member;
-                    }
-                }
-            }
-        }
-
-        // If no group or reference bot found, fall back to current bot
-        if (!referenceBot)
-            referenceBot = bot;
-
-        // Use the reference bot's position to determine closest tank position
-        float dist1 =
-            referenceBot->GetDistance2d(ICC_LK_FROST1_POSITION.GetPositionX(), ICC_LK_FROST1_POSITION.GetPositionY());
-        float dist2 =
-            referenceBot->GetDistance2d(ICC_LK_FROST2_POSITION.GetPositionX(), ICC_LK_FROST2_POSITION.GetPositionY());
-        float dist3 =
-            referenceBot->GetDistance2d(ICC_LK_FROST3_POSITION.GetPositionX(), ICC_LK_FROST3_POSITION.GetPositionY());
-
-        if (dist2 < dist1 && dist2 < dist3)
-            return &ICC_LK_FROST2_POSITION;
-        else if (dist3 < dist1 && dist3 < dist2)
-            return &ICC_LK_FROST3_POSITION;
-        else
-            return &ICC_LK_FROST1_POSITION;
-    }
-
-    // Calculate which position the main tank is closest to
-    float dist1 = mainTank->GetDistance2d(ICC_LK_FROST1_POSITION.GetPositionX(), ICC_LK_FROST1_POSITION.GetPositionY());
-    float dist2 = mainTank->GetDistance2d(ICC_LK_FROST2_POSITION.GetPositionX(), ICC_LK_FROST2_POSITION.GetPositionY());
-    float dist3 = mainTank->GetDistance2d(ICC_LK_FROST3_POSITION.GetPositionX(), ICC_LK_FROST3_POSITION.GetPositionY());
-
-    if (dist2 < dist1 && dist2 < dist3)
-        return &ICC_LK_FROST2_POSITION;
-    else if (dist3 < dist1 && dist3 < dist2)
-        return &ICC_LK_FROST3_POSITION;
-    else
-        return &ICC_LK_FROST1_POSITION;
-}
-
-const Position* IccLichKingWinterAction::GetMainTankRangedPosition()
-{
-    Unit* mainTank = AI_VALUE(Unit*, "main tank");
-    if (!mainTank)
-    {
-        // FIXED: When no main tank, use the bot with lowest GUID to determine position
-        // This ensures ALL bots make the same decision collectively
-
-        Unit* referenceBot = nullptr;
-        ObjectGuid lowestGuid;
-
-        // Find the bot with lowest GUID in the group
-        Group* group = bot->GetGroup();
-        if (group)
-        {
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            {
-                Player* member = itr->GetSource();
-                if (member && member->IsAlive() && member->IsInWorld())
-                {
-                    if (lowestGuid.IsEmpty() || member->GetGUID() < lowestGuid)
-                    {
-                        lowestGuid = member->GetGUID();
-                        referenceBot = member;
-                    }
-                }
-            }
-        }
-
-        // If no group or reference bot found, fall back to current bot
-        if (!referenceBot)
-            referenceBot = bot;
-
-        // Use the reference bot's position to determine closest ranged position
-        float dist1 =
-            referenceBot->GetDistance2d(ICC_LK_FROSTR1_POSITION.GetPositionX(), ICC_LK_FROSTR1_POSITION.GetPositionY());
-        float dist2 =
-            referenceBot->GetDistance2d(ICC_LK_FROSTR2_POSITION.GetPositionX(), ICC_LK_FROSTR2_POSITION.GetPositionY());
-        float dist3 =
-            referenceBot->GetDistance2d(ICC_LK_FROSTR3_POSITION.GetPositionX(), ICC_LK_FROSTR3_POSITION.GetPositionY());
-
-        if (dist2 < dist1 && dist2 < dist3)
-            return &ICC_LK_FROSTR2_POSITION;
-        else if (dist3 < dist1 && dist3 < dist2)
-            return &ICC_LK_FROSTR3_POSITION;
-        else
-            return &ICC_LK_FROSTR1_POSITION;
-    }
-
-    // Map main tank's melee position to corresponding ranged position
-    const Position* tankMeleePos = GetMainTankPosition();
-
-    if (tankMeleePos == &ICC_LK_FROST1_POSITION)
-        return &ICC_LK_FROSTR1_POSITION;
-    else if (tankMeleePos == &ICC_LK_FROST2_POSITION)
-        return &ICC_LK_FROSTR2_POSITION;
-    else
-        return &ICC_LK_FROSTR3_POSITION;
-}
-
-bool IccLichKingWinterAction::IsPositionSafeFromDefile(float x, float y, float z, float minSafeDistance)
-{
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
-    if (!boss)
-        return true;  // No boss, assume safe
+    bool doClear = false;
 
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    const float BASE_RADIUS = 6.0f;
-    const float SAFETY_MARGIN = 3.0f;
+    // Bots must not fight the boss during Remorseless Winter — they should position
+    if (boss && currentTarget == boss)
+        doClear = true;
 
-    for (auto& npc : npcs)
+    // Tanks must not chase ice spheres — ranged DPS handle those
+    if (botAI->IsTank(bot) && IsIceSphere(currentTarget->GetEntry()))
+        doClear = true;
+
+    if (doClear)
     {
-        Unit* unit = botAI->GetUnit(npc);
-        if (unit && unit->IsAlive() && unit->GetEntry() == DEFILE_NPC_ID)
+        // NOTE: do NOT call botAI->Reset() here — Reset() clears the MotionMaster
+        // every tick, which freezes the bot in place (the main source of the freeze bug)
+        bot->AttackStop();
+        bot->SetTarget(ObjectGuid::Empty);
+    }
+}
+
+// ── position helpers ─────────────────────────────────────────────────────────
+
+Position const* IccLichKingWinterAction::GetMainTankPosition()
+{
+    Unit* mainTank = AI_VALUE(Unit*, "main tank");
+    Unit* ref = mainTank ? mainTank : FindWinterReferenceUnit(bot);
+
+    return &SelectClosestOf3(ref, ICC_LK_FROST1_POSITION, ICC_LK_FROST2_POSITION, ICC_LK_FROST3_POSITION);
+}
+
+Position const* IccLichKingWinterAction::GetMainTankRangedPosition()
+{
+    Position const* melee = GetMainTankPosition();
+
+    if (melee == &ICC_LK_FROST1_POSITION)
+        return &ICC_LK_FROSTR1_POSITION;
+    if (melee == &ICC_LK_FROST2_POSITION)
+        return &ICC_LK_FROSTR2_POSITION;
+    return &ICC_LK_FROSTR3_POSITION;
+}
+
+// ── defile safety ────────────────────────────────────────────────────────────
+
+bool IccLichKingWinterAction::IsPositionSafeFromDefile(float x, float y, float /*z*/, float minSafeDistance) const
+{
+    static constexpr float BASE_RADIUS = 6.0f;
+    static constexpr float SAFETY_MARGIN = 3.0f;
+
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    for (ObjectGuid const& guid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || unit->GetEntry() != DEFILE_NPC_ID)
+            continue;
+
+        float currentRadius = BASE_RADIUS;
+        for (uint32 const auraId : DEFILE_AURAS)
         {
-            // Calculate current defile radius including growth
-            float currentRadius = BASE_RADIUS;
-            Aura* growAura = nullptr;
+            Aura* grow = unit->GetAura(auraId);
+            if (!grow)
+                continue;
 
-            // Find growth aura (you'll need to define DEFILE_AURAS array)
-            for (size_t i = 0; i < DEFILE_AURA_COUNT; i++)
-            {
-                growAura = unit->GetAura(DEFILE_AURAS[i]);
-                if (growAura)
-                    break;
-            }
+            float const growthMultiplier = (bot->GetRaidDifficulty() == RAID_DIFFICULTY_10MAN_HEROIC ||
+                                            bot->GetRaidDifficulty() == RAID_DIFFICULTY_10MAN_NORMAL)
+                                               ? 1.4f
+                                               : 0.95f;
 
-            if (growAura)
-            {
-                uint8 stacks = growAura->GetStackAmount();
-                float growthMultiplier = (bot->GetRaidDifficulty() == RAID_DIFFICULTY_10MAN_HEROIC ||
-                                          bot->GetRaidDifficulty() == RAID_DIFFICULTY_10MAN_NORMAL)
-                                             ? 1.4f
-                                             : 0.95f;
-                currentRadius = BASE_RADIUS + (stacks * growthMultiplier);
-            }
-
-            float dx = x - unit->GetPositionX();
-            float dy = y - unit->GetPositionY();
-            float distance = sqrt(dx * dx + dy * dy);
-
-            if (distance < (currentRadius + SAFETY_MARGIN + minSafeDistance))
-                return false;
+            currentRadius = BASE_RADIUS + grow->GetStackAmount() * growthMultiplier;
+            break;
         }
+
+        float const dx = x - unit->GetPositionX();
+        float const dy = y - unit->GetPositionY();
+
+        if (std::sqrt(dx * dx + dy * dy) < currentRadius + SAFETY_MARGIN + minSafeDistance)
+            return false;
     }
     return true;
 }
 
-bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, float targetZ, bool isForced)
+// ── movement ─────────────────────────────────────────────────────────────────
+
+bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, float targetZ, bool forced)
 {
-    float currentX = bot->GetPositionX();
-    float currentY = bot->GetPositionY();
-    float currentZ = bot->GetPositionZ();
+    float const dx = targetX - bot->GetPositionX();
+    float const dy = targetY - bot->GetPositionY();
+    float const dist = std::hypot(dx, dy);
 
-    float dx = targetX - currentX;
-    float dy = targetY - currentY;
-    float dz = targetZ - currentZ;
-    float distance = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (dist < 0.1f)
+        return true;
 
-    if (distance < 0.1f)
-        return true;  // Already at the position
+    MovementPriority const priority = forced ? MovementPriority::MOVEMENT_FORCED : MovementPriority::MOVEMENT_COMBAT;
 
-    dx /= distance;
-    dy /= distance;
-
-    // First check if direct path is safe
-    if (bot->IsWithinLOS(targetX, targetY, targetZ) && IsPositionSafeFromDefile(targetX, targetY, targetZ, 3.0f))
+    // Direct path
+    if (IsPositionSafeFromDefile(targetX, targetY, targetZ, 3.0f) && bot->IsWithinLOS(targetX, targetY, targetZ))
     {
-        if (isForced)
-            botAI->Reset();
-
-        MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED,
-               true, false);
+        MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, priority, true, false);
         return true;
     }
 
-    // If direct path isn't safe, try to find a safe path around defiles
-    const int MAX_ATTEMPTS = 8;
-    const float ANGLE_STEP = M_PI / 4.0f;
-    float attemptDistance = std::min(10.0f, distance);
+    // Arc detour around defile — rotate the direction vector in increasing increments
+    static constexpr int STEPS = 8;
+    static constexpr float STEP_DIST = 8.0f;
 
-    for (int i = 0; i < MAX_ATTEMPTS; i++)
+    float const dirX = dx / dist;
+    float const dirY = dy / dist;
+
+    for (int i = 1; i <= STEPS; ++i)
     {
-        float angle = i * ANGLE_STEP;
-        float offsetX = attemptDistance * cos(angle);
-        float offsetY = attemptDistance * sin(angle);
-
-        // Try positions clockwise and counter-clockwise
-        for (int direction = -1; direction <= 1; direction += 2)
+        for (int sign : {1, -1})
         {
-            if (i == 0 && direction == 1)
-                continue;  // Skip duplicate first attempt
+            float const arc = float(M_PI) / STEPS * i * sign;
+            float const cosA = std::cos(arc);
+            float const sinA = std::sin(arc);
 
-            float testX = currentX + dx * attemptDistance + offsetX * direction;
-            float testY = currentY + dy * attemptDistance + offsetY * direction;
-            float testZ = targetZ;
+            float const testX = bot->GetPositionX() + (dirX * cosA - dirY * sinA) * STEP_DIST;
+            float const testY = bot->GetPositionY() + (dirX * sinA + dirY * cosA) * STEP_DIST;
 
-            if (bot->IsWithinLOS(testX, testY, testZ) && IsPositionSafeFromDefile(testX, testY, testZ, 3.0f))
-            {
-                if (isForced)
-                    botAI->Reset();
+            if (!IsPositionSafeFromDefile(testX, testY, targetZ, 3.0f))
+                continue;
+            if (!bot->IsWithinLOS(testX, testY, targetZ))
+                continue;
 
-                MoveTo(bot->GetMapId(), testX, testY, testZ, false, false, false, true,
-                       MovementPriority::MOVEMENT_FORCED, true, false);
-                return false;  // Not at final position yet
-            }
+            MoveTo(bot->GetMapId(), testX, testY, targetZ, false, false, false, true, priority, true, false);
+            return false;
         }
     }
 
-    // If no safe path found, just move directly (better than standing in defile)
-    if (isForced)
-        botAI->Reset();
-
+    // Emergency fallback — standing in defile is worse than moving unsafely
     MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED,
            true, false);
     return false;
 }
 
-// Helper function to check if a unit is a valid collectible add
-bool IccLichKingWinterAction::IsValidCollectibleAdd(Unit* unit)
+// ── add type helpers ─────────────────────────────────────────────────────────
+
+bool IccLichKingWinterAction::IsValidCollectibleAdd(Unit* unit) const
 {
     if (!unit || !unit->IsAlive())
         return false;
 
-    uint32 entry = unit->GetEntry();
-
-    // Only spirits, shambling horrors, and ghouls are valid collectible adds
-    return (entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
-            entry == NPC_SHAMBLING_HORROR4 || entry == NPC_RAGING_SPIRIT1 || entry == NPC_RAGING_SPIRIT2 ||
-            entry == NPC_RAGING_SPIRIT3 || entry == NPC_RAGING_SPIRIT4 || entry == NPC_DRUDGE_GHOUL1 ||
-            entry == NPC_DRUDGE_GHOUL2 || entry == NPC_DRUDGE_GHOUL3 || entry == NPC_DRUDGE_GHOUL4);
+    uint32 const entry = unit->GetEntry();
+    return entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
+           entry == NPC_SHAMBLING_HORROR4 || entry == NPC_RAGING_SPIRIT1 || entry == NPC_RAGING_SPIRIT2 ||
+           entry == NPC_RAGING_SPIRIT3 || entry == NPC_RAGING_SPIRIT4 || entry == NPC_DRUDGE_GHOUL1 ||
+           entry == NPC_DRUDGE_GHOUL2 || entry == NPC_DRUDGE_GHOUL3 || entry == NPC_DRUDGE_GHOUL4;
 }
 
-// FIXED HandleTankPositioning method
+static bool HasFrontalAbility(uint32 entry)
+{
+    // Shambling Horror: Shockwave (frontal cone)
+    // Raging Spirit:    Soul Shriek (frontal cone)
+    // Drudge Ghouls have no dangerous frontal — behind positioning is still safer
+    return entry == NPC_SHAMBLING_HORROR1 || entry == NPC_SHAMBLING_HORROR2 || entry == NPC_SHAMBLING_HORROR3 ||
+           entry == NPC_SHAMBLING_HORROR4 || entry == NPC_RAGING_SPIRIT1 || entry == NPC_RAGING_SPIRIT2 ||
+           entry == NPC_RAGING_SPIRIT3 || entry == NPC_RAGING_SPIRIT4;
+}
+
+// ── role positioning ─────────────────────────────────────────────────────────
+
 void IccLichKingWinterAction::HandleTankPositioning()
 {
-    if (!botAI->IsTank(bot))
-        return;
-
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (!boss)
         return;
 
-    // Get the target position based on main tank's choice
-    const Position* targetPos = GetMainTankPosition();
+    Position const& tankPos = *GetMainTankPosition();
+    float const distToPos = bot->GetDistance2d(tankPos.GetPositionX(), tankPos.GetPositionY());
 
-    // First check if current position is safe
-    if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
-    {
-        // If in defile, prioritize getting out
-        TryMoveToPosition(targetPos->GetPositionX(), targetPos->GetPositionY(), 840.857f, true);
-        return;
-    }
-
-    float distToTarget = bot->GetDistance2d(targetPos->GetPositionX(), targetPos->GetPositionY());
-
-    // MAIN TANK: Always stay at tank position
     if (botAI->IsMainTank(bot))
     {
-        // Main tank should always maintain position at tank spot
-        if (distToTarget > 2.0f)
+        if (distToPos > 2.0f)
         {
-            float targetX = targetPos->GetPositionX();
-            float targetY = targetPos->GetPositionY();
-            float targetZ = 840.857f;
-
-            TryMoveToPosition(targetX, targetY, targetZ, true);
-            return;  // Don't do add management until in position
+            TryMoveToPosition(tankPos.GetPositionX(), tankPos.GetPositionY(), PLATFORM_Z, true);
+            return;
         }
-
-        // Once in position, handle add management from tank position
-        HandleMainTankAddManagement(boss, targetPos);
+        HandleMainTankAddManagement(boss, &tankPos);
     }
-    // ASSIST TANK: More flexible positioning based on add collection
     else if (botAI->IsAssistTank(bot))
     {
-        // First ensure we're reasonably close to tank area
-        if (distToTarget > 15.0f)
+        if (distToPos > 15.0f)
         {
-            float targetX = targetPos->GetPositionX() + 3.0f;  // Slight offset from main tank
-            float targetY = targetPos->GetPositionY() + 2.0f;
-            float targetZ = 840.857f;
-
-            TryMoveToPosition(targetX, targetY, targetZ, true);
+            // Slight offset so assist tank doesn't stack exactly on main tank
+            TryMoveToPosition(tankPos.GetPositionX() + 3.0f, tankPos.GetPositionY() + 2.0f, PLATFORM_Z, true);
             return;
         }
-
-        // Handle assist tank add collection and positioning
-        HandleAssistTankAddManagement(boss, targetPos);
+        HandleAssistTankAddManagement(boss, &tankPos);
     }
 }
 
-// Updated HandleMeleePositioning method - only for non-tanks
 void IccLichKingWinterAction::HandleMeleePositioning()
 {
-    // Skip if this is a tank - they have their own positioning logic
-    if (botAI->IsTank(bot))
-        return;
-    Unit* currentTarget = AI_VALUE(Unit*, "current target");
-    // Handle melee positioning behind target (for DPS only)
-    if (currentTarget && !botAI->IsRanged(bot) && currentTarget->isInFront(bot) && currentTarget->IsAlive() &&
-        currentTarget->GetEntry() != NPC_THE_LICH_KING && currentTarget->GetEntry() != NPC_ICE_SPHERE1 &&
-        currentTarget->GetEntry() != NPC_ICE_SPHERE2 && currentTarget->GetEntry() != NPC_ICE_SPHERE3 && currentTarget->GetEntry() != NPC_ICE_SPHERE4)
+    Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
+
+    // Step 1: ensure we are in the right general area
+    Position const& tankPos = *GetMainTankPosition();
+    float const distToPos = bot->GetDistance2d(tankPos.GetPositionX(), tankPos.GetPositionY());
+    if (distToPos > 8.0f)
     {
-        // Calculate desired position (4.0f behind the target)
-        float orientation = currentTarget->GetOrientation() + M_PI + M_PI / 8;
-        float x = currentTarget->GetPositionX();
-        float y = currentTarget->GetPositionY();
-        float z = bot->GetPositionZ();
-        float targetX = x + cos(orientation) * 4.0f;
-        float targetY = y + sin(orientation) * 4.0f;
-        Position botPos = bot->GetPosition();
-        float dx = targetX - botPos.GetPositionX();
-        float dy = targetY - botPos.GetPositionY();
-        float distance = sqrt(dx * dx + dy * dy);
+        // Before Transition (>50%) stay slightly offset; in later phases stack tighter
+        bool const latePhase = boss && !boss->HealthAbovePct(50);
+        float const offsetX = latePhase ? 0.0f : -5.0f;
+        float const offsetY = latePhase ? 0.0f : 5.0f;
 
-        if (distance <= 1.0f)
-            return;
-
-        // Move in increments of 2 yards toward the target position
-        float moveDistance = std::min(2.0f, distance);
-        float normalizedDx = dx / distance;
-        float normalizedDy = dy / distance;
-
-        float newX = botPos.GetPositionX() + normalizedDx * moveDistance;
-        float newY = botPos.GetPositionY() + normalizedDy * moveDistance;
-
-        TryMoveToPosition(newX, newY, z, false);
+        TryMoveToPosition(tankPos.GetPositionX() + offsetX, tankPos.GetPositionY() + offsetY, PLATFORM_Z, false);
     }
-    // Handle non-ranged DPS positioning - USE MAIN TANK'S POSITION
-    if (!botAI->IsRanged(bot))
+
+    // Step 2: position behind the current melee target to avoid frontal cone attacks
+    // (Shambling Horror → Shockwave, Raging Spirit → Soul Shriek)
+    Unit* currentTarget = AI_VALUE(Unit*, "current target");
+    if (!currentTarget || !currentTarget->IsAlive())
+        return;
+
+    if (!IsValidCollectibleAdd(currentTarget) || IsIceSphere(currentTarget->GetEntry()))
+        return;
+
+    // Try angles starting directly behind (180°) then flanks, then forward-flanks.
+    // Frontal-cone attacks cover roughly ±45° from the add's facing, so anything
+    // beyond ±45° from behind (i.e. ±135° from facing) is safe.
+    static constexpr std::array<float, 6> BehindAngles = {
+        float(M_PI),           // 180° — directly behind (safest)
+        float(M_PI) * 0.75f,   // 135° — left-rear flank
+        float(M_PI) * 1.25f,   // 225° — right-rear flank
+        float(M_PI) * 0.5f,    // 90°  — left flank (safe for most cone widths)
+        float(M_PI) * 1.5f,    // 270° — right flank
+        float(M_PI) * 0.875f,  // 157° — closer left-rear (fallback)
+    };
+
+    for (float const angleOffset : BehindAngles)
     {
-        Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
-        const Position* targetPos = GetMainTankPosition();
-        float distToTarget = bot->GetDistance2d(targetPos->GetPositionX(), targetPos->GetPositionY());
-        if (distToTarget > 8.0f)
-        {
-            float targetX = targetPos->GetPositionX() - 5.0f;
-            float targetY = targetPos->GetPositionY() + 5.0f;
-            float targetZ = 840.857f;
-            if (boss && !boss->HealthAbovePct(50))
-            {
-                targetX = targetPos->GetPositionX();
-                targetY = targetPos->GetPositionY();
-                targetZ = 840.857f;
-            }
+        float const angle = currentTarget->GetOrientation() + angleOffset;
+        float const destX = currentTarget->GetPositionX() + std::cos(angle) * BEHIND_DISTANCE;
+        float const destY = currentTarget->GetPositionY() + std::sin(angle) * BEHIND_DISTANCE;
 
-            // Move in increments of 2 yards toward the tank position
-            Position botPos = bot->GetPosition();
-            float dx = targetX - botPos.GetPositionX();
-            float dy = targetY - botPos.GetPositionY();
-            float distance = sqrt(dx * dx + dy * dy);
+        float const dx = destX - bot->GetPositionX();
+        float const dy = destY - bot->GetPositionY();
+        float const dist = std::hypot(dx, dy);
 
-            if (distance > 2.0f)
-            {
-                float normalizedDx = dx / distance;
-                float normalizedDy = dy / distance;
+        if (dist < 1.0f)
+            return;  // Already close enough to this position
 
-                float newX = botPos.GetPositionX() + normalizedDx * 2.0f;
-                float newY = botPos.GetPositionY() + normalizedDy * 2.0f;
+        if (!IsPositionSafeFromDefile(destX, destY, bot->GetPositionZ(), 2.0f))
+            continue;
 
-                TryMoveToPosition(newX, newY, targetZ);
-            }
-            else
-            {
-                TryMoveToPosition(targetX, targetY, targetZ);
-            }
-        }
+        if (!bot->IsWithinLOS(destX, destY, bot->GetPositionZ()))
+            continue;
+
+        // Move in 2-yard steps so the bot doesn't overshoot
+        float const step = std::min(2.0f, dist);
+        TryMoveToPosition(bot->GetPositionX() + (dx / dist) * step, bot->GetPositionY() + (dy / dist) * step,
+                          bot->GetPositionZ(), false);
+        return;
     }
 }
 
-// Updated HandleRangedPositioning method
 void IccLichKingWinterAction::HandleRangedPositioning()
 {
-    if (!botAI->IsRanged(bot))
-        return;
+    Position const& targetPos = *GetMainTankRangedPosition();
 
-    // Get the ranged position based on main tank's choice
-    const Position* targetPos = GetMainTankRangedPosition();
-
-    // First check if current position is safe
     if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
     {
-        // If in defile, prioritize getting out
-        TryMoveToPosition(targetPos->GetPositionX(), targetPos->GetPositionY(), 840.857f, true);
+        TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, true);
         return;
     }
 
-    float distToTarget = bot->GetDistance2d(targetPos->GetPositionX(), targetPos->GetPositionY());
+    if (bot->GetDistance2d(targetPos.GetPositionX(), targetPos.GetPositionY()) > 2.0f)
+        TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, false);
 
-    if (distToTarget > 2.0f)
+    if (!botAI->IsRangedDps(bot))
+        return;
+
+    // Hunters always target spheres; other ranged only if no hunter is in the group
+    bool const hasHunter = [&]() -> bool
     {
-        float targetX = targetPos->GetPositionX();
-        float targetY = targetPos->GetPositionY();
-        float targetZ = 840.857f;
+        Group* group = bot->GetGroup();
+        if (!group)
+            return false;
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (member && member->IsAlive() && member->IsInWorld() && member->getClass() == CLASS_HUNTER)
+                return true;
+        }
+        return false;
+    }();
 
-        TryMoveToPosition(targetX, targetY, targetZ);
+    if (bot->getClass() != CLASS_HUNTER && hasHunter)
+        return;
+
+    // Keep current sphere target if it is still valid
+    Unit* currentTarget = bot->GetVictim();
+    if (currentTarget && currentTarget->IsAlive() && IsIceSphere(currentTarget->GetEntry()))
+    {
+        bot->SetFacingToObject(currentTarget);
+        Attack(currentTarget);
+        return;
     }
 
-    // Handle sphere targeting for ranged DPS
-    if (botAI->IsRangedDps(bot))
+    // Find the lowest-health sphere (most urgent to kill)
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    Unit* bestSphere = nullptr;
+    float lowestHpPct = 101.0f;
+
+    for (ObjectGuid const& guid : npcs)
     {
-        bool hasHunter = false;
-        Group* group = bot->GetGroup();
-        if (group)
-        {
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            {
-                Player* member = itr->GetSource();
-                if (member && member->IsAlive() && member->IsInWorld() && member->getClass() == CLASS_HUNTER)
-                {
-                    hasHunter = true;
-                    break;
-                }
-            }
-        }
+        Unit* unit = botAI->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || !IsIceSphere(unit->GetEntry()))
+            continue;
 
-        if (bot->getClass() == CLASS_HUNTER || !hasHunter)
+        float const hp = unit->GetHealthPct();
+        if (hp < lowestHpPct)
         {
-            Unit* currentTarget = bot->GetVictim();
-            if (currentTarget && currentTarget->IsAlive())
-            {
-                uint32 entry = currentTarget->GetEntry();
-                if (entry == NPC_ICE_SPHERE1 || entry == NPC_ICE_SPHERE2 || entry == NPC_ICE_SPHERE3 || entry == NPC_ICE_SPHERE4)
-                {
-                    bot->SetFacingToObject(currentTarget);
-                    Attack(currentTarget);
-                    return;
-                }
-            }
-
-            Unit* closestSphere = nullptr;
-            float closestDist = 100.0f;
-            GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-            for (auto& npc : npcs)
-            {
-                Unit* unit = botAI->GetUnit(npc);
-                if (!unit || !unit->IsAlive())
-                    continue;
-                uint32 entry = unit->GetEntry();
-                if (entry == NPC_ICE_SPHERE1 || entry == NPC_ICE_SPHERE2 || entry == NPC_ICE_SPHERE3 || entry == NPC_ICE_SPHERE4)
-                {
-                    float dist = bot->GetDistance(unit);
-                    if (!closestSphere || dist < closestDist)
-                    {
-                        closestSphere = unit;
-                        closestDist = dist;
-                    }
-                }
-            }
-            if (closestSphere)
-            {
-                bot->SetTarget(closestSphere->GetGUID());
-                bot->SetFacingToObject(closestSphere);
-                Attack(closestSphere);
-            }
+            lowestHpPct = hp;
+            bestSphere = unit;
         }
+    }
+
+    if (bestSphere)
+    {
+        bot->SetTarget(bestSphere->GetGUID());
+        bot->SetFacingToObject(bestSphere);
+        Attack(bestSphere);
     }
 }
 
-void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, const Position* tankPos)
-{
-    if (!botAI->IsMainTank(bot))
-        return;
+// ── add management ───────────────────────────────────────────────────────────
 
-    // First, ensure we're at the correct tank position
-    float distToTankPos = bot->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY());
-    if (distToTankPos > 3.0f)
+void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position const* tankPos)
+{
+    float const distToPos = bot->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY());
+    if (distToPos > 3.0f)
     {
-        TryMoveToPosition(tankPos->GetPositionX(), tankPos->GetPositionY(), 840.857f, true);
-        return;  // Wait until we're in position
+        TryMoveToPosition(tankPos->GetPositionX(), tankPos->GetPositionY(), PLATFORM_Z, true);
+        return;
     }
 
-    // Get all valid adds in the encounter area
-    GuidVector targets = AI_VALUE(GuidVector, "possible targets");
-    std::vector<Unit*> validAdds;
+    GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
     Unit* currentTarget = bot->GetVictim();
 
-    // Collect all valid adds
-    for (auto i = targets.begin(); i != targets.end(); ++i)
+    // Bucket adds by priority:
+    // 1. Attacking a non-tank player (most urgent — rescue)
+    // 2. Not yet attacking us (need to taunt)
+    // 3. Already on us (hold and keep)
+    Unit* priorityAdd = nullptr;
+    Unit* secondaryAdd = nullptr;
+    Unit* fallbackAdd = nullptr;
+
+    for (ObjectGuid const& guid : targets)
     {
-        Unit* unit = botAI->GetUnit(*i);
-        if (!IsValidCollectibleAdd(unit))
+        Unit* add = botAI->GetUnit(guid);
+        if (!IsValidCollectibleAdd(add))
             continue;
 
-        validAdds.push_back(unit);
+        Unit* victim = add->GetVictim();
+
+        if (victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer()))
+        {
+            if (!priorityAdd || bot->GetDistance(add) < bot->GetDistance(priorityAdd))
+                priorityAdd = add;
+            continue;
+        }
+
+        if (victim != bot)
+        {
+            if (!secondaryAdd || bot->GetDistance(add) < bot->GetDistance(secondaryAdd))
+                secondaryAdd = add;
+            continue;
+        }
+
+        if (!fallbackAdd || bot->GetDistance(add) < bot->GetDistance(fallbackAdd))
+            fallbackAdd = add;
     }
 
-    // If we have no adds, clear target if needed
-    if (validAdds.empty())
+    Unit* targetAdd = priorityAdd ? priorityAdd : secondaryAdd ? secondaryAdd : fallbackAdd;
+
+    if (!targetAdd)
     {
         if (currentTarget && !IsValidCollectibleAdd(currentTarget))
-        {
             bot->SetTarget(ObjectGuid::Empty);
-        }
         return;
     }
 
-    // Strategy for add management:
-    // 1. First priority: Adds attacking non-tanks
-    // 2. Second priority: Adds not attacking us
-    // 3. Third priority: All other valid adds
-    Unit* priorityAdd = nullptr;
-    Unit* secondaryAdd = nullptr;
-    Unit* otherAdd = nullptr;
+    float const addDist = bot->GetDistance(targetAdd);
 
-    for (Unit* add : validAdds)
+    if (addDist < 10.0f)
     {
-        Unit* addVictim = add->GetVictim();
-
-        // Highest priority: Adds attacking non-tanks
-        if (addVictim && addVictim->IsPlayer() && !botAI->IsTank(addVictim->ToPlayer()))
+        if (currentTarget != targetAdd)
         {
-            if (!priorityAdd || bot->GetDistance(add) < bot->GetDistance(priorityAdd))
-            {
-                priorityAdd = add;
-            }
-            continue;
-        }
-
-        // Medium priority: Adds not attacking us
-        if (addVictim != bot)
-        {
-            if (!secondaryAdd || bot->GetDistance(add) < bot->GetDistance(secondaryAdd))
-            {
-                secondaryAdd = add;
-            }
-            continue;
-        }
-
-        // Lowest priority: All other valid adds
-        if (!otherAdd || bot->GetDistance(add) < bot->GetDistance(otherAdd))
-        {
-            otherAdd = add;
-        }
-    }
-
-    // Select the highest priority add available
-    Unit* targetAdd = priorityAdd ? priorityAdd : (secondaryAdd ? secondaryAdd : otherAdd);
-
-    if (targetAdd)
-    {
-        float addDist = bot->GetDistance(targetAdd);
-
-        // If add is close enough (within melee range), attack it
-        if (addDist < 10.0f)
-        {
-            // If we're not already attacking this add, switch to it
-            if (currentTarget != targetAdd)
-            {
-                bot->SetTarget(targetAdd->GetGUID());
-                bot->SetFacingToObject(targetAdd);
-                Attack(targetAdd);
-            }
-        }
-        else
-        {
-            // Add is too far - move toward it while staying near tank position
-            float moveX = targetAdd->GetPositionX();
-            float moveY = targetAdd->GetPositionY();
-
-            // Don't move too far from tank position (max 15 yards)
-            float maxPullDistance = 15.0f;
-            float pullRatio = std::min(1.0f, maxPullDistance / addDist);
-
-            float adjustedX = tankPos->GetPositionX() + (moveX - tankPos->GetPositionX()) * pullRatio;
-            float adjustedY = tankPos->GetPositionY() + (moveY - tankPos->GetPositionY()) * pullRatio;
-
-            TryMoveToPosition(adjustedX, adjustedY, 840.857f, false);
-
-            // Still try to attack while moving
             bot->SetTarget(targetAdd->GetGUID());
             bot->SetFacingToObject(targetAdd);
             Attack(targetAdd);
         }
     }
-    else if (currentTarget && !IsValidCollectibleAdd(currentTarget))
+    else
     {
-        // Clear invalid target
-        bot->SetTarget(ObjectGuid::Empty);
+        // Pull add toward the tank position rather than chasing it across the platform
+        static constexpr float MAX_PULL = 15.0f;
+        float const pullRatio = std::min(1.0f, MAX_PULL / addDist);
+
+        float const adjustedX =
+            tankPos->GetPositionX() + (targetAdd->GetPositionX() - tankPos->GetPositionX()) * pullRatio;
+        float const adjustedY =
+            tankPos->GetPositionY() + (targetAdd->GetPositionY() - tankPos->GetPositionY()) * pullRatio;
+
+        TryMoveToPosition(adjustedX, adjustedY, PLATFORM_Z, false);
+        bot->SetTarget(targetAdd->GetGUID());
+        bot->SetFacingToObject(targetAdd);
+        Attack(targetAdd);
     }
 }
 
-void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, const Position* tankPos)
+void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position const* tankPos)
 {
-    if (!botAI->IsAssistTank(bot))
-        return;
-
     Unit* mainTank = AI_VALUE(Unit*, "main tank");
     if (!mainTank)
         return;
 
-    // Look for priority adds that need to be collected
+    GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
+
+    // Priority 1: adds attacking non-tank players
     Unit* targetAdd = nullptr;
     float closestDist = FLT_MAX;
-    bool foundPriorityAdd = false;
+    bool found = false;
 
-    GuidVector targets = AI_VALUE(GuidVector, "possible targets");
-
-    // Priority 1: Adds attacking non-tanks (players/healers)
-    for (auto i = targets.begin(); i != targets.end(); ++i)
+    for (ObjectGuid const& guid : targets)
     {
-        Unit* unit = botAI->GetUnit(*i);
-        if (!IsValidCollectibleAdd(unit))
+        Unit* add = botAI->GetUnit(guid);
+        if (!IsValidCollectibleAdd(add))
             continue;
 
-        Unit* addVictim = unit->GetVictim();
-        if (addVictim && addVictim->IsPlayer() && !botAI->IsTank(addVictim->ToPlayer()))
+        Unit* victim = add->GetVictim();
+        if (victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer()))
         {
-            float addDist = bot->GetDistance(unit);
-            if (addDist < closestDist)
+            float const dist = bot->GetDistance(add);
+            if (dist < closestDist)
             {
-                targetAdd = unit;
-                closestDist = addDist;
-                foundPriorityAdd = true;
+                closestDist = dist;
+                targetAdd = add;
+                found = true;
             }
         }
     }
 
-    // Priority 2: Adds not attacking main tank (if no priority adds found)
-    if (!foundPriorityAdd)
+    // Priority 2: adds not already on the main tank
+    if (!found)
     {
         closestDist = FLT_MAX;
-        for (auto i = targets.begin(); i != targets.end(); ++i)
+        for (ObjectGuid const& guid : targets)
         {
-            Unit* unit = botAI->GetUnit(*i);
-            if (!IsValidCollectibleAdd(unit))
+            Unit* add = botAI->GetUnit(guid);
+            if (!IsValidCollectibleAdd(add) || add->GetVictim() == mainTank)
                 continue;
 
-            // Only target adds that are NOT attacking the main tank
-            if (unit->GetVictim() != mainTank)
+            float const dist = bot->GetDistance(add);
+            if (dist < closestDist)
             {
-                float addDist = bot->GetDistance(unit);
-                if (addDist < closestDist)
-                {
-                    targetAdd = unit;
-                    closestDist = addDist;
-                }
+                closestDist = dist;
+                targetAdd = add;
             }
         }
     }
 
     if (targetAdd)
     {
-        // Calculate position between add and main tank
-        float pullX = (targetAdd->GetPositionX() + tankPos->GetPositionX()) / 2;
-        float pullY = (targetAdd->GetPositionY() + tankPos->GetPositionY()) / 2;
+        bool const addFarFromTank = targetAdd->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY()) > 10.0f;
 
-        // Move to intercept position if add is far from main tank
-        if (targetAdd->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY()) > 10.0f)
+        if (addFarFromTank)
         {
-            if (bot->GetDistance2d(pullX, pullY) > 3.0f)
-            {
-                TryMoveToPosition(pullX, pullY, 840.857f, false);
-            }
+            // Intercept halfway between the add and the tank position
+            float const midX = (targetAdd->GetPositionX() + tankPos->GetPositionX()) * 0.5f;
+            float const midY = (targetAdd->GetPositionY() + tankPos->GetPositionY()) * 0.5f;
+
+            if (bot->GetDistance2d(midX, midY) > 3.0f)
+                TryMoveToPosition(midX, midY, PLATFORM_Z, false);
         }
-        // Otherwise move toward the add
         else if (closestDist > 5.0f)
         {
-            TryMoveToPosition(targetAdd->GetPositionX(), targetAdd->GetPositionY(), 840.857f, false);
+            TryMoveToPosition(targetAdd->GetPositionX(), targetAdd->GetPositionY(), PLATFORM_Z, false);
         }
 
-        // Attack the add
         bot->SetTarget(targetAdd->GetGUID());
         bot->SetFacingToObject(targetAdd);
         Attack(targetAdd);
     }
     else
     {
-        // No adds to collect, position near main tank
-        float distToTankPos = bot->GetDistance2d(tankPos->GetPositionX(), tankPos->GetPositionY());
-        if (distToTankPos > 2.0f)
-        {
-            float X = mainTank->GetPositionX();
-            float Y = mainTank->GetPositionY();
-            TryMoveToPosition(X, Y, 840.857f, false);
-        }
+        // No adds to collect — stay near main tank
+        if (bot->GetDistance2d(mainTank) > 2.0f)
+            TryMoveToPosition(mainTank->GetPositionX(), mainTank->GetPositionY(), PLATFORM_Z, false);
 
-        // Check current target validity
         Unit* currentTarget = bot->GetVictim();
         if (currentTarget && !IsValidCollectibleAdd(currentTarget))
-        {
             bot->SetTarget(ObjectGuid::Empty);
-        }
     }
 }
 
 bool IccLichKingAddsAction::Execute(Event /*event*/)
 {
-    if (bot->HasAura(SPELL_HARVEST_SOUL_VALKYR))  // Don't process actions if bot is picked up by Val'kyr
+    // Being carried by a Val'kyr — no actions possible
+    if (bot->HasAura(SPELL_HARVEST_SOUL_VALKYR))
         return false;
 
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
+    Difficulty const diff = bot->GetRaidDifficulty();
+    bool const hasPlague = botAI->HasAura("Necrotic Plague", bot);
+    Unit* const terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
 
-    Difficulty diff = bot->GetRaidDifficulty();
-
-    if (sPlayerbotAIConfig.EnableICCBuffs && diff && (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    // ── Heroic cheat buffs ────────────────────────────────────────────────────
+    if (sPlayerbotAIConfig.EnableICCBuffs && diff && IsHeroicLk(diff))
     {
-        //------CHEAT-------
         if (!bot->HasAura(SPELL_EXPERIENCED))
             bot->AddAura(SPELL_EXPERIENCED, bot);
-
         if (!bot->HasAura(SPELL_AGEIS_OF_DALARAN))
             bot->AddAura(SPELL_AGEIS_OF_DALARAN, bot);
-
         if (boss && boss->HealthBelowPct(60) && boss->HealthAbovePct(40) && !bot->HasAura(SPELL_EMPOWERED_BLOOD))
             bot->AddAura(SPELL_EMPOWERED_BLOOD, bot);
-
-        if (!bot->HasAura(SPELL_NO_THREAT) && !botAI->IsTank(bot))
+        if (!botAI->IsTank(bot) && !bot->HasAura(SPELL_NO_THREAT))
             bot->AddAura(SPELL_NO_THREAT, bot);
-
         if (!bot->HasAura(SPELL_PAIN_SUPPRESION))
             bot->AddAura(SPELL_PAIN_SUPPRESION, bot);
-        //------CHEAT-------
     }
 
-    bool hasPlague = botAI->HasAura("Necrotic Plague", bot);
-    Unit* terenasMenethilHC = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
-
-    Group* group = bot->GetGroup();
-    if (group && boss && boss->HealthAbovePct(71))
+    // ── Phase 1: mark boss with skull ────────────────────────────────────────
+    if (Group* group = bot->GetGroup())
     {
-        constexpr uint8_t skullIconId = 7;
-        ObjectGuid skullGuid = group->GetTargetIcon(skullIconId);
-        if (skullGuid != boss->GetGUID())
-            group->SetTargetIcon(skullIconId, bot->GetGUID(), boss->GetGUID());
+        if (boss && boss->HealthAbovePct(71) && group->GetTargetIcon(7) != boss->GetGUID())
+            group->SetTargetIcon(7, bot->GetGUID(), boss->GetGUID());
     }
 
-    //-----------Valkyr bot suicide if group fails to kill Valkyr in time------------- comment out if you dont want it
-    if (bot->HasAura(30440))  // Random aura tracking whether bot has fallen off edge / been thrown by Val'kyr
+    // ── Val'kyr edge-dive (ongoing) ───────────────────────────────────────────
+    if (bot->HasAura(30440))
     {
         if (bot->GetPositionZ() > 779.0f)
             return JumpTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), 740.01f);
-        else
-        {
-            bot->Kill(bot, bot);  // If bot has jumped past the kill Z (780), **Now it is fixed and bots will actually die instead of beeing frozen**
-            return true;
-        }
+
+        bot->Kill(bot, bot);
+        return true;
     }
 
-    bool hasWinterAura = false;
-    if (boss && (boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
-                 boss->HasAura(SPELL_REMORSELESS_WINTER3) || boss->HasAura(SPELL_REMORSELESS_WINTER4)))
-        hasWinterAura = true;
-
-    bool hasWinter2Aura = false;
-    if (boss && (boss->HasAura(SPELL_REMORSELESS_WINTER5) || boss->HasAura(SPELL_REMORSELESS_WINTER6) ||
-                 boss->HasAura(SPELL_REMORSELESS_WINTER7) || boss->HasAura(SPELL_REMORSELESS_WINTER8)))
-        hasWinter2Aura = true;
-
-    if (boss && boss->GetHealthPct() < 70 && boss->GetHealthPct() > 40 && !hasWinterAura &&
-        !hasWinter2Aura)  // If boss is in p2, check if bot has been thrown off platform
+    // ── Phase 2: detect bots fallen off edge and initiate dive ───────────────
+    auto const hasAnyWinterAura = [&]() -> bool
     {
-        float dx = bot->GetPositionX() - 503.0f;
-        float dy = bot->GetPositionY() - (-2124.0f);
-        float distance = sqrt(dx * dx + dy * dy);  // Calculate distance from the center of the platform
+        if (!boss)
+            return false;
+        return boss->HasAura(SPELL_REMORSELESS_WINTER1) || boss->HasAura(SPELL_REMORSELESS_WINTER2) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER3) || boss->HasAura(SPELL_REMORSELESS_WINTER4) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER5) || boss->HasAura(SPELL_REMORSELESS_WINTER6) ||
+               boss->HasAura(SPELL_REMORSELESS_WINTER7) || boss->HasAura(SPELL_REMORSELESS_WINTER8);
+    };
 
-        if (distance > 52.0f && distance < 70.0f &&
-            bot->GetPositionZ() > 844)  // If bot has fallen off edge, distance is over 52
+    if (boss && boss->GetHealthPct() < 70.0f && boss->GetHealthPct() > 40.0f && !hasAnyWinterAura())
+    {
+        float const dx = bot->GetPositionX() - 503.0f;
+        float const dy = bot->GetPositionY() - (-2124.0f);
+        float const platDist = std::hypot(dx, dy);
+
+        if (platDist > 52.0f && platDist < 70.0f && bot->GetPositionZ() > 844.0f)
         {
-            bot->AddAura(30440, bot);  // Apply random 30 sec aura to track that we've initiated a jump
-            return JumpTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(),
-                          740.01f);  // Start jumping to the abyss
+            bot->AddAura(30440, bot);
+            return JumpTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), 740.01f);
         }
     }
-    //-----------Valkyr bot suicide if group fails to kill Valkyr in time------------- comment out if you dont want it
 
-    // Handle teleportation fixes
-    HandleTeleportationFixes(diff, terenasMenethilHC);
+    // ── Teleport fixes ────────────────────────────────────────────────────────
+    HandleTeleportationFixes(diff, terenas);
 
-    // Handle heroic mode spirit bomb avoidance for main tank
-    if (HandleSpiritBombAvoidance(diff, terenasMenethilHC))
+    // ── Heroic: Terenas / spirit phase ────────────────────────────────────────
+    if (HandleSpiritBombAvoidance(diff, terenas))
         return true;
 
-    // Handle non-main tank positioning in heroic mode
-    HandleHeroicNonTankPositioning(diff, terenasMenethilHC);
+    HandleHeroicNonTankPositioning(diff, terenas);
+    HandleSpiritMarkingAndTargeting(diff, terenas);
 
-    // Handle spirit marking and targeting in heroic mode
-    HandleSpiritMarkingAndTargeting(diff, terenasMenethilHC);
-
-    if (terenasMenethilHC)
+    if (terenas)
         return false;
 
-    // Handle quake mechanics
+    // ── Normal encounter flow ─────────────────────────────────────────────────
     if (HandleQuakeMechanics(boss))
         return true;
 
-    // Handle shambling horror interactions
     HandleShamblingHorrors(boss, hasPlague);
-
-    // Handle assist tank add management
-    if (HandleAssistTankAddManagement(boss, diff))
-        return true;
-
-    // Handle melee positioning
+    HandleAssistTankAddManagement(boss, diff);
     HandleMeleePositioning(boss, hasPlague, diff);
-
-    // Handle main tank targeting in heroic
     HandleMainTankTargeting(boss, diff);
-
-    // Handle non-tank positioning in heroic
     HandleNonTankHeroicPositioning(boss, diff, hasPlague);
-
-    // Handle ranged positioning
     HandleRangedPositioning(boss, hasPlague, diff);
-
-    // Handle defile mechanics
     HandleDefileMechanics(boss, diff);
-
-    // Handle Val'kyr mechanics
     HandleValkyrMechanics(diff);
-
-    // Handle vile spirit mechanics
     HandleVileSpiritMechanics();
 
     return false;
 }
 
-void IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* terenasMenethilHC)
+void IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* terenas)
 {
-    // temp soultion for bots when they get teleport far away into another dimension (they are unable to attack spirit
-    // warden) in heroic they will be in safe spot while player is surviving vile spirits
-    if (!(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC) &&
-        abs(bot->GetPositionY() - -2095.7915f) > 200.0f)
+    // Normal mode: snap back if somehow teleported far outside the encounter area
+    if (!IsHeroicLk(diff) && std::abs(bot->GetPositionY() - (-2095.7915f)) > 200.0f)
     {
         bot->TeleportTo(bot->GetMapId(), ICC_LICH_KING_ADDS_POSITION.GetPositionX(),
                         ICC_LICH_KING_ADDS_POSITION.GetPositionY(), ICC_LICH_KING_ADDS_POSITION.GetPositionZ(),
                         bot->GetOrientation());
+        return;
     }
 
-    // temp solution for bots going underground due to buggy ice platfroms and adds that go underground
-    if (abs(bot->GetPositionZ() - 840.857f) > 1.0f && !botAI->GetAura("Harvest Soul", bot, false, false) &&
-        !botAI->GetAura("Harvest Souls", bot, false, false))
+    // Fix bots going underground (buggy ice-platform collisions)
+    if (!botAI->GetAura("Harvest Soul", bot, false, false) && !botAI->GetAura("Harvest Souls", bot, false, false) &&
+        std::abs(bot->GetPositionZ() - 840.857f) > 1.0f)
+    {
         bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), 840.857f, bot->GetOrientation());
+        return;
+    }
 
-    if (abs(bot->GetPositionZ() - 1049.865f) > 5.0f && botAI->GetAura("Harvest Soul", bot, false, false) &&
-        terenasMenethilHC)
-        bot->TeleportTo(bot->GetMapId(), terenasMenethilHC->GetPositionX(), terenasMenethilHC->GetPositionY(), 1049.865f,
+    // Heroic: keep bot near Terenas during Harvest Soul
+    if (terenas && botAI->GetAura("Harvest Soul", bot, false, false) &&
+        std::abs(bot->GetPositionZ() - 1049.865f) > 5.0f)
+    {
+        bot->TeleportTo(bot->GetMapId(), terenas->GetPositionX(), terenas->GetPositionY(), 1049.865f,
                         bot->GetOrientation());
+    }
 }
 
-bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* terenasMenethilHC)
+bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* terenas)
 {
-    if (!botAI->IsMainTank(bot) || !terenasMenethilHC || !diff ||
-        !(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    if (!botAI->IsMainTank(bot) || !terenas || !diff || !IsHeroicLk(diff))
         return false;
 
-    std::map<ObjectGuid, Unit*> spiritBombs;
+    static constexpr float SAFE_DIST = 14.0f;
+    static constexpr float SAFE_HEIGHT = 12.0f;
+    static constexpr float DENSITY_RADIUS = 10.0f;
+    static constexpr float DENSITY_PENALTY = 10.0f;
+    static constexpr float MAX_HEIGHT_DIFF = 8.0f;
 
-    // Gather all spirit bombs using their GUIDs for reliable tracking
-    GuidVector npcs1 = AI_VALUE(GuidVector, "nearest hostile npcs");
-    for (auto& npcGuid : npcs1)
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    std::vector<Unit*> bombs;
+    for (ObjectGuid const& guid : npcs)
     {
-        Unit* unit = botAI->GetUnit(npcGuid);
+        Unit* unit = botAI->GetUnit(guid);
         if (unit && unit->IsAlive() && unit->GetEntry() == NPC_SPIRIT_BOMB)
-        {
-            spiritBombs[npcGuid] = unit;
-        }
+            bombs.push_back(unit);
     }
 
-    // Only proceed if there are actually spirit bombs present
-    if (spiritBombs.empty())
+    if (bombs.empty())
         return false;
 
-    const float SAFE_DISTANCE = 14.0f;        // Minimum safe horizontal distance
-    const float SAFE_HEIGHT_DIFF = 12.0f;     // Safe if Z difference is greater than this
-    const float BOMB_DENSITY_RADIUS = 10.0f;  // Radius for counting nearby bombs
-    const float BOMB_COUNT_PENALTY = 10.0f;   // Score penalty per bomb in vicinity
-    const float MAX_HEIGHT_DIFF = 8.0f;       // Increased from 5.0f for more flexibility
-
-    // First check if current position is already safe
-    bool currentPositionSafe = true;
-    float minDistanceToAnyBomb = std::numeric_limits<float>::max();
-
-    // Clean up invalid bombs and check current position safety
-    auto it = spiritBombs.begin();
-    while (it != spiritBombs.end())
+    // Check current position safety
+    bool currentlySafe = true;
+    for (Unit const* bomb : bombs)
     {
-        Unit* verifiedBomb = botAI->GetUnit(it->first);
-        if (!verifiedBomb || !verifiedBomb->IsAlive() || verifiedBomb->GetEntry() != NPC_SPIRIT_BOMB)
+        float const hDist =
+            std::hypot(bot->GetPositionX() - bomb->GetPositionX(), bot->GetPositionY() - bomb->GetPositionY());
+        float const vDist = std::abs(bot->GetPositionZ() - bomb->GetPositionZ());
+
+        if (hDist < SAFE_DIST && vDist <= SAFE_HEIGHT)
         {
-            it = spiritBombs.erase(it);
-            continue;
+            currentlySafe = false;
+            break;
         }
-
-        float dx = bot->GetPositionX() - verifiedBomb->GetPositionX();
-        float dy = bot->GetPositionY() - verifiedBomb->GetPositionY();
-        float dz = bot->GetPositionZ() - verifiedBomb->GetPositionZ();
-        float horizontalDistance = sqrt(dx * dx + dy * dy);
-        float verticalDistance = fabs(dz);
-
-        minDistanceToAnyBomb = std::min(minDistanceToAnyBomb, horizontalDistance);
-
-        // Position is dangerous if horizontally close AND not high enough above/below
-        if (horizontalDistance < SAFE_DISTANCE && verticalDistance <= SAFE_HEIGHT_DIFF)
-        {
-            currentPositionSafe = false;
-        }
-        ++it;
     }
 
-    // If no valid bombs remain after cleanup, exit early
-    if (spiritBombs.empty())
+    if (currentlySafe)
+        return true;
+
+    // Search for the best nearby safe position
+    static constexpr std::array<float, 5> SearchDistances = {6.0f, 10.0f, 15.0f, 20.0f, 25.0f};
+    static constexpr int ANGLE_COUNT = 36;
+
+    float bestScore = -std::numeric_limits<float>::max();
+    float bestX = 0.0f;
+    float bestY = 0.0f;
+    float bestZ = 0.0f;
+    bool found = false;
+
+    for (float const radius : SearchDistances)
     {
-        return false;
-    }
-
-    // Only move if current position is unsafe
-    if (!currentPositionSafe)
-    {
-        float bestScore = -std::numeric_limits<float>::max();
-        float bestX = 0, bestY = 0, bestZ = 0;
-        bool foundSafePosition = false;
-
-        // Multi-distance search to avoid getting stuck
-        std::vector<float> searchDistances = {6.0f, 10.0f, 15.0f, 20.0f, 25.0f};
-
-        for (float searchDistance : searchDistances)
+        for (int i = 0; i < ANGLE_COUNT; ++i)
         {
-            // Try 36 different angles for thorough coverage
-            for (int i = 0; i < 36; i++)
+            float const angle = i * 2.0f * float(M_PI) / ANGLE_COUNT;
+            float const testX = bot->GetPositionX() + radius * std::cos(angle);
+            float const testY = bot->GetPositionY() + radius * std::sin(angle);
+            float testZ = bot->GetPositionZ();
+
+            bot->UpdateAllowedPositionZ(testX, testY, testZ);
+
+            if (std::abs(testZ - bot->GetPositionZ()) >= MAX_HEIGHT_DIFF)
+                continue;
+            if (!bot->IsWithinLOS(testX, testY, testZ))
+                continue;
+
+            bool posSafe = true;
+            float minHDist = std::numeric_limits<float>::max();
+            int nearbyCount = 0;
+
+            for (Unit const* bomb : bombs)
             {
-                float testAngle = i * 2 * M_PI / 36;
+                float const hDist = std::hypot(testX - bomb->GetPositionX(), testY - bomb->GetPositionY());
+                float const vDist = std::abs(testZ - bomb->GetPositionZ());
 
-                float testX = bot->GetPositionX() + searchDistance * cos(testAngle);
-                float testY = bot->GetPositionY() + searchDistance * sin(testAngle);
-                float testZ = bot->GetPositionZ();
+                minHDist = std::min(minHDist, hDist);
 
-                bot->UpdateAllowedPositionZ(testX, testY, testZ);
+                if (hDist < DENSITY_RADIUS)
+                    ++nearbyCount;
 
-                // More lenient LOS and height checks
-                bool validPosition = true;
-                float heightDiff = fabs(testZ - bot->GetPositionZ());
-
-                // Skip positions that are too high/low or not in LOS
-                if (heightDiff >= MAX_HEIGHT_DIFF)
+                if (hDist < SAFE_DIST && vDist <= SAFE_HEIGHT)
                 {
-                    validPosition = false;
-                }
-
-                // Only check LOS if height difference is reasonable
-                if (validPosition && !bot->IsWithinLOS(testX, testY, testZ))
-                {
-                    validPosition = false;
-                }
-
-                if (!validPosition)
-                    continue;
-
-                // Check position safety and bomb density
-                bool positionSafe = true;
-                float minDistAtPos = std::numeric_limits<float>::max();
-                int bombCountInVicinity = 0;
-
-                for (auto const& bombPair : spiritBombs)
-                {
-                    Unit* bomb = bombPair.second;
-                    if (!bomb || !bomb->IsAlive())
-                        continue;
-
-                    float dx = testX - bomb->GetPositionX();
-                    float dy = testY - bomb->GetPositionY();
-                    float dz = testZ - bomb->GetPositionZ();
-                    float horizontalDist = sqrt(dx * dx + dy * dy);
-                    float verticalDist = fabs(dz);
-
-                    // Track minimum distance to any bomb
-                    minDistAtPos = std::min(minDistAtPos, horizontalDist);
-
-                    // Count bombs within density radius
-                    if (horizontalDist < BOMB_DENSITY_RADIUS)
-                    {
-                        bombCountInVicinity++;
-                    }
-
-                    // Check safety condition
-                    if (horizontalDist < SAFE_DISTANCE && verticalDist <= SAFE_HEIGHT_DIFF)
-                    {
-                        positionSafe = false;
-                        break;
-                    }
-                }
-
-                // Skip unsafe positions
-                if (!positionSafe)
-                    continue;
-
-                // Calculate composite score with distance bonus to prefer closer safe positions
-                float distanceBonus = std::max(0.0f, 30.0f - searchDistance);  // Prefer closer positions
-                float score = minDistAtPos - (bombCountInVicinity * BOMB_COUNT_PENALTY) + distanceBonus;
-
-                // Update best position if this one is better
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestX = testX;
-                    bestY = testY;
-                    bestZ = testZ;
-                    foundSafePosition = true;
+                    posSafe = false;
+                    break;
                 }
             }
 
-            // If we found a safe position at this distance, use it (prefer closer positions)
-            if (foundSafePosition && searchDistance <= 15.0f)
-                break;
-        }
+            if (!posSafe)
+                continue;
 
-        // Move to the best position found
-        if (foundSafePosition)
-        {
-            // Final validation before moving
-            if (bot->IsWithinLOS(bestX, bestY, bestZ) && fabs(bestZ - bot->GetPositionZ()) <= MAX_HEIGHT_DIFF)
+            float const distBonus = std::max(0.0f, 30.0f - radius);
+            float const score = minHDist - nearbyCount * DENSITY_PENALTY + distBonus;
+
+            if (score > bestScore)
             {
-                MoveTo(bot->GetMapId(), bestX, bestY, bestZ, false, false, false, true,
-                       MovementPriority::MOVEMENT_FORCED);
+                bestScore = score;
+                bestX = testX;
+                bestY = testY;
+                bestZ = testZ;
+                found = true;
             }
         }
+
+        if (found && radius <= 15.0f)
+            break;
     }
+
+    if (found && bot->IsWithinLOS(bestX, bestY, bestZ) && std::abs(bestZ - bot->GetPositionZ()) <= MAX_HEIGHT_DIFF)
+    {
+        MoveTo(bot->GetMapId(), bestX, bestY, bestZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED);
+    }
+
     return true;
 }
 
-void IccLichKingAddsAction::HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenasMenethilHC)
+void IccLichKingAddsAction::HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas)
 {
-    if (!terenasMenethilHC || botAI->IsMainTank(bot) || !diff ||
-        !(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    if (!terenas || botAI->IsMainTank(bot) || !diff || !IsHeroicLk(diff))
         return;
 
     Unit* mainTank = AI_VALUE(Unit*, "main tank");
-    // Only move if significantly far from main tank (increased threshold to reduce jittery movement)
-    if (mainTank && bot->GetExactDist2d(mainTank->GetPositionX(), mainTank->GetPositionY()) > 2.0f)
-    {
+    if (!mainTank)
+        return;
+
+    // Stack on main tank — 3-yard threshold avoids micro-jitter
+    if (bot->GetExactDist2d(mainTank) > 3.0f)
         MoveTo(bot->GetMapId(), mainTank->GetPositionX(), mainTank->GetPositionY(), mainTank->GetPositionZ(), false,
                false, false, true, MovementPriority::MOVEMENT_FORCED);
-    }
 }
 
-void IccLichKingAddsAction::HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenasMenethilHC)
+void IccLichKingAddsAction::HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas)
 {
-    if (!terenasMenethilHC || botAI->IsMainTank(bot) || !diff ||
-        !(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    if (!terenas || botAI->IsMainTank(bot) || !diff || !IsHeroicLk(diff))
         return;
 
     Group* group = bot->GetGroup();
     if (!group)
         return;
 
-    static constexpr uint8_t STAR_ICON_INDEX = 0;
+    static constexpr uint8_t STAR_ICON = 0;
     static constexpr float MAX_Z_DIFF = 20.0f;
 
-    // Check if current marked target is still valid and threatening
-    Unit* currentMarkedTarget = botAI->GetUnit(group->GetTargetIcon(STAR_ICON_INDEX));
-    bool needNewMark = !currentMarkedTarget || !currentMarkedTarget->IsAlive();
-
-    // Check if current marked spirit is targeting a group member
-    bool currentTargetingGroupMember = false;
-    if (currentMarkedTarget && currentMarkedTarget->IsAlive())
+    auto const spiritTargetsGroup = [&](Unit* spirit) -> bool
     {
-        Unit* spiritTarget = currentMarkedTarget->GetVictim();
-        if (spiritTarget && spiritTarget->IsPlayer())
-        {
-            if (Group* spiritTargetGroup = spiritTarget->ToPlayer()->GetGroup())
-            {
-                if (spiritTargetGroup->GetGUID() == group->GetGUID())
-                {
-                    currentTargetingGroupMember = true;
-                }
-            }
-        }
-    }
+        Unit* victim = spirit->GetVictim();
+        if (!victim || !victim->IsPlayer())
+            return false;
 
-    // Only search for new target if we need to mark OR if we can find a higher priority target
-    if (needNewMark || !currentTargetingGroupMember)
+        Group* g = victim->ToPlayer()->GetGroup();
+        return g && g->GetGUID() == group->GetGUID();
+    };
+
+    Unit* currentMark = botAI->GetUnit(group->GetTargetIcon(STAR_ICON));
+    bool needNewMark = !currentMark || !currentMark->IsAlive();
+    bool markOnTarget = currentMark && currentMark->IsAlive() && spiritTargetsGroup(currentMark);
+
+    if (needNewMark || !markOnTarget)
     {
-        Unit* prioritySpirit = nullptr;  // Spirit targeting group member
-        Unit* nearestSpirit = nullptr;   // Fallback: nearest spirit
+        GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+        Unit* prioritySpirit = nullptr;
+        Unit* nearestSpirit = nullptr;
         float priorityDist = 100.0f;
         float nearestDist = 100.0f;
 
-        GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-        for (auto& npc : npcs)
+        for (ObjectGuid const& guid : npcs)
         {
-            Unit* unit = botAI->GetUnit(npc);
+            Unit* unit = botAI->GetUnit(guid);
             if (!unit || !unit->IsAlive() || !unit->isTargetableForAttack())
                 continue;
 
-            uint32 entry = unit->GetEntry();
-            if (entry == NPC_WICKED_SPIRIT1 || entry == NPC_WICKED_SPIRIT2 || entry == NPC_WICKED_SPIRIT3 ||
-                entry == NPC_WICKED_SPIRIT4)
+            uint32 const entry = unit->GetEntry();
+            if (entry != NPC_WICKED_SPIRIT1 && entry != NPC_WICKED_SPIRIT2 && entry != NPC_WICKED_SPIRIT3 &&
+                entry != NPC_WICKED_SPIRIT4)
+                continue;
+
+            if (std::abs(unit->GetPositionZ() - bot->GetPositionZ()) > MAX_Z_DIFF)
+                continue;
+
+            float const dist = bot->GetDistance(unit);
+            if (spiritTargetsGroup(unit) && dist < priorityDist)
             {
-                // Check Z-axis difference first
-                float zDiff = std::abs(unit->GetPositionZ() - bot->GetPositionZ());
-                if (zDiff <= MAX_Z_DIFF)
-                {
-                    float dist = bot->GetDistance(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
-
-                    // Check if this spirit is targeting a group member
-                    bool targetingGroupMember = false;
-                    Unit* spiritTarget = unit->GetVictim();
-                    if (spiritTarget && spiritTarget->IsPlayer())
-                    {
-                        if (Group* spiritTargetGroup = spiritTarget->ToPlayer()->GetGroup())
-                        {
-                            if (spiritTargetGroup->GetGUID() == group->GetGUID())
-                            {
-                                targetingGroupMember = true;
-                            }
-                        }
-                    }
-
-                    // Priority: spirits targeting group members
-                    if (targetingGroupMember)
-                    {
-                        if (!prioritySpirit || dist < priorityDist)
-                        {
-                            prioritySpirit = unit;
-                            priorityDist = dist;
-                        }
-                    }
-
-                    // Fallback: track nearest spirit regardless of target
-                    if (!nearestSpirit || dist < nearestDist)
-                    {
-                        nearestSpirit = unit;
-                        nearestDist = dist;
-                    }
-                }
+                prioritySpirit = unit;
+                priorityDist = dist;
+            }
+            if (dist < nearestDist)
+            {
+                nearestSpirit = unit;
+                nearestDist = dist;
             }
         }
 
-        // Mark priority spirit if found, otherwise fall back to nearest
-        Unit* spiritToMark = prioritySpirit ? prioritySpirit : nearestSpirit;
-
-        // Only mark if we found a better target or need a new mark
-        if (spiritToMark && (needNewMark || (prioritySpirit && !currentTargetingGroupMember)))
-        {
-            group->SetTargetIcon(STAR_ICON_INDEX, bot->GetGUID(), spiritToMark->GetGUID());
-        }
+        Unit* toMark = prioritySpirit ? prioritySpirit : nearestSpirit;
+        if (toMark && (needNewMark || (prioritySpirit && !markOnTarget)))
+            group->SetTargetIcon(STAR_ICON, bot->GetGUID(), toMark->GetGUID());
     }
 
-    // Only ranged DPS use star for RTI
+    // Ranged DPS focus the star target; instant-kill is a temporary workaround
+    // while bots can't reliably kill spirits before they detonate
     if (botAI->IsRangedDps(bot))
     {
         context->GetValue<std::string>("rti")->Set("star");
-        Unit* starTarget = botAI->GetUnit(group->GetTargetIcon(STAR_ICON_INDEX));
+
+        Unit* starTarget = botAI->GetUnit(group->GetTargetIcon(STAR_ICON));
         if (starTarget && starTarget->IsAlive())
         {
             bot->SetTarget(starTarget->GetGUID());
             bot->SetFacingToObject(starTarget);
             Attack(starTarget);
-            bot->Kill(bot, starTarget); //temp solution since bots struggle to kill spirits in time, they have to follow main tank closely so that they do not get hit by bomb, thus making them have very limited time to react
+            bot->Kill(bot, starTarget);
         }
     }
 }
@@ -7852,378 +7579,230 @@ bool IccLichKingAddsAction::HandleQuakeMechanics(Unit* boss)
     if (!boss || !boss->HasUnitState(UNIT_STATE_CASTING) || !boss->FindCurrentSpellBySpellId(SPELL_QUAKE))
         return false;
 
-    float currentDistance = bot->GetExactDist2d(boss);
+    static constexpr float QUAKE_MIN = 35.0f;
+    static constexpr float QUAKE_MAX = 45.0f;
+    static constexpr float QUAKE_TARGET = 40.0f;
 
-    // If already at ideal distance (40f), no need to move
-    if (currentDistance >= 35.0f && currentDistance <= 45.0f)
+    float const dist = bot->GetExactDist2d(boss);
+    if (dist >= QUAKE_MIN && dist <= QUAKE_MAX)
         return false;
 
+    // Interrupt active spell cast before repositioning
     if (bot->HasUnitState(UNIT_STATE_CASTING))
-        botAI->Reset();
+        bot->InterruptNonMeleeSpells(false);
 
-    float botX = bot->GetPositionX();
-    float botY = bot->GetPositionY();
-    float targetX, targetY;
+    float const dx = bot->GetPositionX() - boss->GetPositionX();
+    float const dy = bot->GetPositionY() - boss->GetPositionY();
+    float const len = std::hypot(dx, dy);
+    if (len < 0.01f)
+        return false;
 
-    if (!botAI->IsTank(bot))
-    {
-        // Non-tanks: use offset position as direction guide
-        float offsetX = boss->GetPositionX() + 15.0f;
-        float offsetY = boss->GetPositionY() + 15.0f;
+    // Move along the bot→boss axis to reach 40-yard safe band
+    float const targetX = boss->GetPositionX() + (dx / len) * QUAKE_TARGET;
+    float const targetY = boss->GetPositionY() + (dy / len) * QUAKE_TARGET;
 
-        // Calculate direction towards offset position
-        float dx = offsetX - botX;
-        float dy = offsetY - botY;
-        float distance = sqrt(dx * dx + dy * dy);
-
-        if (distance > 0.0f)
-        {
-            // Move 10f towards offset position
-            float ratio = 10.0f / distance;
-            targetX = botX + dx * ratio;
-            targetY = botY + dy * ratio;
-        }
-        else
-        {
-            targetX = botX;
-            targetY = botY;
-        }
-    }
-    else
-    {
-        // Tanks: use offset position as direction guide
-        float offsetX = boss->GetPositionX() - 15.0f;
-        float offsetY = boss->GetPositionY() - 15.0f;
-
-        // Calculate direction towards offset position
-        float dx = offsetX - botX;
-        float dy = offsetY - botY;
-        float distance = sqrt(dx * dx + dy * dy);
-
-        if (distance > 0.0f)
-        {
-            // Move 10f towards offset position
-            float ratio = 10.0f / distance;
-            targetX = botX + dx * ratio;
-            targetY = botY + dy * ratio;
-        }
-        else
-        {
-            targetX = botX;
-            targetY = botY;
-        }
-    }
-
-    MoveTo(bot->GetMapId(), targetX, targetY, boss->GetPositionZ(), false, false, false, false,
+    MoveTo(bot->GetMapId(), targetX, targetY, bot->GetPositionZ(), false, false, false, false,
            MovementPriority::MOVEMENT_COMBAT);
-
     return false;
 }
 
-void IccLichKingAddsAction::HandleShamblingHorrors(Unit* boss, bool hasPlague)
+void IccLichKingAddsAction::HandleShamblingHorrors(Unit* /*boss*/, bool /*hasPlague*/)
 {
-    // Find closest shambling horror
-    GuidVector npcs2 = AI_VALUE(GuidVector, "nearest hostile npcs");
-    Unit* closestHorror = nullptr;
-    float minHorrorDistance = std::numeric_limits<float>::max();
+    if (bot->getClass() != CLASS_HUNTER)
+        return;
 
-    for (auto& npc : npcs2)
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    for (ObjectGuid const& guid : npcs)
     {
-        Unit* unit = botAI->GetUnit(npc);
-        if (unit && unit->IsAlive() &&
-            (unit->GetEntry() == NPC_SHAMBLING_HORROR1 || unit->GetEntry() == NPC_SHAMBLING_HORROR2 || unit->GetEntry() == NPC_SHAMBLING_HORROR3 ||
-             unit->GetEntry() == NPC_SHAMBLING_HORROR4))  // Shambling horror entries
+        Unit* unit = botAI->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || !IsLkShambling(unit->GetEntry()))
+            continue;
+
+        if (botAI->HasAura("Enrage", unit))
         {
-            float distance = bot->GetDistance(unit);
-            if (distance < minHorrorDistance)
-            {
-                minHorrorDistance = distance;
-                closestHorror = unit;
-            }
+            botAI->CastSpell("Tranquilizing Shot", unit);
+            return;
         }
     }
-
-    /*
-    if (!closestHorror || hasPlague)
-    {
-    }
-    else if (!hasPlague && closestHorror->isInFront(bot) && closestHorror->IsAlive() && !botAI->IsTank(bot) &&
-             bot->GetDistance2d(closestHorror) < 3.0f)
-        return FleePosition(closestHorror->GetPosition(), 2.0f, 250U);
-    */
-
-    // If bot is hunter and shambling is enraged, use Tranquilizing Shot
-    if (bot->getClass() == CLASS_HUNTER && closestHorror && botAI->HasAura("Enrage", closestHorror))
-        botAI->CastSpell("Tranquilizing Shot", closestHorror);
 }
 
-bool IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty diff)
+void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty diff)
 {
     if (!botAI->IsAssistTank(bot) || !boss || boss->HealthBelowPct(71))
-        return false;
+        return;
 
-    // Find all adds and categorize them by targeting status
-    GuidVector targets = AI_VALUE(GuidVector, "possible targets");
-    std::vector<ObjectGuid> addsNotTargetingUs;
-    std::vector<ObjectGuid> addsTargetingUs;
+    GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
 
-    for (auto i = targets.begin(); i != targets.end(); ++i)
+    std::vector<Unit*> addsOnUs;
+    std::vector<Unit*> addsElsewhere;
+
+    for (ObjectGuid const& guid : targets)
     {
-        Unit* unit = botAI->GetUnit(*i);
-        if (unit && unit->IsAlive() &&
-            (unit->GetEntry() == NPC_SHAMBLING_HORROR1 || unit->GetEntry() == NPC_SHAMBLING_HORROR2 ||
-             unit->GetEntry() == NPC_SHAMBLING_HORROR3 ||
-             unit->GetEntry() == NPC_SHAMBLING_HORROR4 ||  // Shambling entry
-             unit->GetEntry() == NPC_RAGING_SPIRIT1 || unit->GetEntry() == NPC_RAGING_SPIRIT2 ||
-             unit->GetEntry() == NPC_RAGING_SPIRIT3 || unit->GetEntry() == NPC_RAGING_SPIRIT4 ||  // Spirits entry
-             unit->GetEntry() == NPC_DRUDGE_GHOUL1 || unit->GetEntry() == NPC_DRUDGE_GHOUL2 ||
-             unit->GetEntry() == NPC_DRUDGE_GHOUL3 || unit->GetEntry() == NPC_DRUDGE_GHOUL4))  // Drudge Ghouls entry
-        {
-            if (unit->GetVictim() == bot)
-            {
-                addsTargetingUs.push_back(unit->GetGUID());
-            }
-            else
-            {
-                addsNotTargetingUs.push_back(unit->GetGUID());
-            }
-        }
+        Unit* unit = botAI->GetUnit(guid);
+        if (!IsValidLkCollectibleAdd(unit))
+            continue;
+
+        if (unit->GetVictim() == bot)
+            addsOnUs.push_back(unit);
+        else
+            addsElsewhere.push_back(unit);
     }
 
-    // If there are adds not targeting us, we need to collect them all
-    if (!addsNotTargetingUs.empty())
+    // ── Collect adds not yet on us ────────────────────────────────────────────
+    if (!addsElsewhere.empty())
     {
-        // Find the highest priority target (Shamblings first, then closest)
+        // Shamblings take absolute priority; fall back to closest add
         Unit* priorityTarget = nullptr;
         Unit* closestAdd = nullptr;
-        float closestDist = 999.0f;
+        float closestDist = FLT_MAX;
 
-        for (const ObjectGuid& addGuid : addsNotTargetingUs)
+        for (Unit* add : addsElsewhere)
         {
-            Unit* add = botAI->GetUnit(addGuid);
-            if (add && add->IsAlive())
+            if (IsLkShambling(add->GetEntry()))
             {
-                // Shambling takes absolute priority regardless of distance
-                if (add->GetEntry() == NPC_SHAMBLING_HORROR1 || add->GetEntry() == NPC_SHAMBLING_HORROR2 ||
-                    add->GetEntry() == NPC_SHAMBLING_HORROR3 || add->GetEntry() == NPC_SHAMBLING_HORROR4)
-                {
-                    priorityTarget = add;
-                    break;  // Found shambling, stop looking
-                }
+                priorityTarget = add;
+                break;
+            }
 
-                // Track closest add as backup
-                float dist = bot->GetExactDist2d(add);
-                if (dist < closestDist)
-                {
-                    closestDist = dist;
-                    closestAdd = add;
-                }
+            float const dist = bot->GetExactDist2d(add);
+            if (dist < closestDist)
+            {
+                closestDist = dist;
+                closestAdd = add;
             }
         }
 
-        // Choose target: Shambling first, then closest
         Unit* targetToAttack = priorityTarget ? priorityTarget : closestAdd;
+        if (!targetToAttack)
+            return;
 
-        if (targetToAttack)
+        // Generate threat on all loose adds via taunt or ranged abilities
+        for (Unit* add : addsElsewhere)
         {
-            // Generate threat on ALL adds not targeting us using ranged abilities
-            for (const ObjectGuid& addGuid : addsNotTargetingUs)
-            {
-                Unit* add = botAI->GetUnit(addGuid);
-                if (add && add->IsAlive())
-                {
-                    float dist = bot->GetExactDist2d(add);
+            float const dist = bot->GetExactDist2d(add);
+            if (dist > 30.0f)
+                continue;
 
-                    // Use ranged threat generation if within range
-                    if (dist <= 30.0f)
-                    {
-                        // Try taunt first if available
-                        if (botAI->CastSpell("taunt", add))
-                        {
-                            continue;
-                        }
-                        // Fall back to ranged attack
-                        else if (botAI->CastSpell("shoot", add) || botAI->CastSpell("throw", add))
-                        {
-                            continue;
-                        }
-                        // Last resort - basic attack state update
-                        else
-                        {
-                            bot->AttackerStateUpdate(add);
-                        }
-                    }
-                }
-            }
-
-            // Move towards and attack the priority target
-            float distToTarget = bot->GetExactDist2d(targetToAttack);
-
-            // If we're too far from our priority target, move closer
-            if (distToTarget > 5.0f)
-            {
-                MoveTo(bot->GetMapId(), targetToAttack->GetPositionX(), targetToAttack->GetPositionY(),
-                       targetToAttack->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_FORCED,
-                       true, false);
-            }
-            else
-            {
-                // We're close enough, set target and attack
-                bot->SetTarget(targetToAttack->GetGUID());
-                bot->SetFacingToObject(targetToAttack);
-                Attack(targetToAttack);
-            }
+            if (botAI->CastSpell("taunt", add))
+                continue;
+            if (botAI->CastSpell("shoot", add) || botAI->CastSpell("throw", add))
+                continue;
+            // No AttackerStateUpdate — it bypasses game damage/threat logic
         }
-    }
-    // If all adds are targeting us or there are no adds, maintain position based on difficulty
-    else
-    {
-        // In heroic mode, stay at melee position
-        if (diff && (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+
+        if (bot->GetExactDist2d(targetToAttack) > 5.0f)
         {
-            if (bot->GetExactDist2d(ICC_LICH_KING_ASSISTHC_POSITION.GetPositionX(),
-                                    ICC_LICH_KING_ASSISTHC_POSITION.GetPositionY()) > 2.0f)
-            {
-                MoveTo(bot->GetMapId(), ICC_LICH_KING_ASSISTHC_POSITION.GetPositionX(),
-                       ICC_LICH_KING_ASSISTHC_POSITION.GetPositionY(), ICC_LICH_KING_ASSISTHC_POSITION.GetPositionZ(),
-                       false, false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
-            }
+            MoveTo(bot->GetMapId(), targetToAttack->GetPositionX(), targetToAttack->GetPositionY(),
+                   targetToAttack->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_FORCED, true,
+                   false);
         }
-        // In normal mode, stay at adds position
         else
         {
-            if (bot->GetExactDist2d(ICC_LICH_KING_ADDS_POSITION) > 2.0f)
-            {
-                MoveTo(bot->GetMapId(), ICC_LICH_KING_ADDS_POSITION.GetPositionX(),
-                       ICC_LICH_KING_ADDS_POSITION.GetPositionY(), ICC_LICH_KING_ADDS_POSITION.GetPositionZ(), false,
-                       false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
-            }
+            bot->SetTarget(targetToAttack->GetGUID());
+            bot->SetFacingToObject(targetToAttack);
+            Attack(targetToAttack);
         }
+        return;
+    }
 
-        // If we have adds targeting us, attack them with stable target selection
-        if (!addsTargetingUs.empty())
+    // ── All adds are on us — hold position ───────────────────────────────────
+    Position const& holdPos = IsHeroicLk(diff) ? ICC_LICH_KING_ASSISTHC_POSITION : ICC_LICH_KING_ADDS_POSITION;
+
+    if (bot->GetExactDist2d(holdPos) > 2.0f)
+    {
+        MoveTo(bot->GetMapId(), holdPos.GetPositionX(), holdPos.GetPositionY(), holdPos.GetPositionZ(), false, false,
+               false, true, MovementPriority::MOVEMENT_FORCED, true, false);
+    }
+
+    if (addsOnUs.empty())
+        return;
+
+    // Stable target selection: keep current target if still valid
+    Unit* currentTarget = bot->GetVictim();
+    bool keepCurrent = false;
+
+    if (currentTarget && currentTarget->IsAlive())
+    {
+        for (Unit const* add : addsOnUs)
         {
-            Unit* currentTarget = bot->GetVictim();
-            bool needNewTarget = true;
-
-            // Check if current target is still valid (alive and attacking us)
-            if (currentTarget && currentTarget->IsAlive())
+            if (add->GetGUID() == currentTarget->GetGUID())
             {
-                for (const ObjectGuid& addGuid : addsTargetingUs)
-                {
-                    if (addGuid == currentTarget->GetGUID())
-                    {
-                        needNewTarget = false;
-                        break;
-                    }
-                }
-            }
-
-            // Only pick new target if current one is invalid
-            if (needNewTarget)
-            {
-                currentTarget = nullptr;
-
-                // Priority 1: Shambling Horror
-                for (const ObjectGuid& addGuid : addsTargetingUs)
-                {
-                    Unit* add = botAI->GetUnit(addGuid);
-                    if (add && add->IsAlive())
-                    {
-                        if (add->GetEntry() == NPC_SHAMBLING_HORROR1 || add->GetEntry() == NPC_SHAMBLING_HORROR2 ||
-                            add->GetEntry() == NPC_SHAMBLING_HORROR3 || add->GetEntry() == NPC_SHAMBLING_HORROR4)
-                        {
-                            currentTarget = add;
-                            break;
-                        }
-                    }
-                }
-
-                // Priority 2: Any other add if no Shambling Horror
-                if (!currentTarget)
-                {
-                    for (const ObjectGuid& addGuid : addsTargetingUs)
-                    {
-                        Unit* add = botAI->GetUnit(addGuid);
-                        if (add && add->IsAlive())
-                        {
-                            currentTarget = add;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (currentTarget)
-            {
-                bot->SetTarget(currentTarget->GetGUID());
-                bot->SetFacingToObject(currentTarget);
-                Attack(currentTarget);
+                keepCurrent = true;
+                break;
             }
         }
     }
-    return false;
+
+    if (!keepCurrent)
+    {
+        currentTarget = nullptr;
+
+        // Shambling Horror first, then any other add
+        for (Unit* add : addsOnUs)
+        {
+            if (IsLkShambling(add->GetEntry()))
+            {
+                currentTarget = add;
+                break;
+            }
+        }
+
+        if (!currentTarget && !addsOnUs.empty())
+            currentTarget = addsOnUs.front();
+    }
+
+    if (currentTarget)
+    {
+        bot->SetTarget(currentTarget->GetGUID());
+        bot->SetFacingToObject(currentTarget);
+        Attack(currentTarget);
+    }
 }
 
 void IccLichKingAddsAction::HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff)
 {
-    if (!boss || !botAI->IsMelee(bot) || botAI->IsAssistTank(bot) || boss->HealthBelowPct(71) || hasPlague)
+    if (!boss || !botAI->IsMelee(bot) || botAI->IsAssistTank(bot) || boss->HealthBelowPct(71) || hasPlague ||
+        IsHeroicLk(diff))
         return;
 
-    if (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC)
+    float const distToPos = bot->GetDistance(ICC_LICH_KING_MELEE_POSITION);
+    if (distToPos <= 6.0f)
         return;
 
-    float currentDist = bot->GetDistance(ICC_LICH_KING_MELEE_POSITION);
-
-    if (currentDist > 6.0f && !botAI->IsMainTank(bot))
+    if (!botAI->IsMainTank(bot))
     {
         MoveTo(bot->GetMapId(), ICC_LICH_KING_MELEE_POSITION.GetPositionX(),
                ICC_LICH_KING_MELEE_POSITION.GetPositionY(), ICC_LICH_KING_MELEE_POSITION.GetPositionZ(), false, false,
                false, true, MovementPriority::MOVEMENT_FORCED, true, false);
+        return;
     }
 
-    if (currentDist > 6.0f && botAI->IsMainTank(bot) && boss && boss->GetVictim() == bot)
+    // Main tank: step toward position in 3-yard increments to avoid overshooting
+    if (boss->GetVictim() != bot)
+        return;
+
+    float const dx = ICC_LICH_KING_MELEE_POSITION.GetPositionX() - bot->GetPositionX();
+    float const dy = ICC_LICH_KING_MELEE_POSITION.GetPositionY() - bot->GetPositionY();
+    float const len = std::hypot(dx, dy);
+    if (len < 0.1f)
+        return;
+
+    float const step = std::min(3.0f, len - 1.0f);
+    if (step <= 0.0f)
     {
-        Position currentPos = bot->GetPosition();
-        Position targetPos = ICC_LICH_KING_MELEE_POSITION;
-
-        // Calculate direction vector
-        float dx = targetPos.GetPositionX() - currentPos.GetPositionX();
-        float dy = targetPos.GetPositionY() - currentPos.GetPositionY();
-
-        // Calculate distance and normalize direction
-        float distance = sqrt(dx * dx + dy * dy);
-        if (distance > 0.1)
-        {
-            dx /= distance;
-            dy /= distance;
-        }
-
-        // Calculate intermediate position (3f towards target)
-        float step = std::min(3.0f, distance - 1.0f);  // Don't overshoot the target
-        if (step > 0)
-        {
-            float intermediateX = currentPos.GetPositionX() + dx * step;
-            float intermediateY = currentPos.GetPositionY() + dy * step;
-
-            MoveTo(bot->GetMapId(), intermediateX, intermediateY, bot->GetPositionZ(), false, false, false, true,
-                   MovementPriority::MOVEMENT_FORCED, true, false);
-        }
-        else
-        {
-            // If we're within 1.0f + 3.0f of the target, move directly to it
-            MoveTo(bot->GetMapId(), targetPos.GetPositionX(), targetPos.GetPositionY(), bot->GetPositionZ(), false,
-                   false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
-        }
+        MoveTo(bot->GetMapId(), ICC_LICH_KING_MELEE_POSITION.GetPositionX(),
+               ICC_LICH_KING_MELEE_POSITION.GetPositionY(), bot->GetPositionZ(), false, false, false, true,
+               MovementPriority::MOVEMENT_FORCED, true, false);
+        return;
     }
+
+    MoveTo(bot->GetMapId(), bot->GetPositionX() + (dx / len) * step, bot->GetPositionY() + (dy / len) * step,
+           bot->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
 }
 
 void IccLichKingAddsAction::HandleMainTankTargeting(Unit* boss, Difficulty diff)
 {
-    if (!botAI->IsMainTank(bot) || !boss)
-        return;
-
-    if (!(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    if (!botAI->IsMainTank(bot) || !boss || !IsHeroicLk(diff))
         return;
 
     if (boss->HealthBelowPct(71) || boss->GetVictim() == bot)
@@ -8236,10 +7815,7 @@ void IccLichKingAddsAction::HandleMainTankTargeting(Unit* boss, Difficulty diff)
 
 void IccLichKingAddsAction::HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague)
 {
-    if (botAI->IsTank(bot) || !boss)
-        return;
-
-    if (!(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    if (botAI->IsTank(bot) || !boss || !IsHeroicLk(diff))
         return;
 
     if (boss->HealthBelowPct(71) || hasPlague)
@@ -8249,53 +7825,42 @@ void IccLichKingAddsAction::HandleNonTankHeroicPositioning(Unit* boss, Difficult
     if (!mainTank)
         return;
 
-    if (bot->GetDistance2d(mainTank->GetPositionX(), mainTank->GetPositionY()) > 20.0f && (bot->getClass() == CLASS_HUNTER))
+    float const distToTank = bot->GetDistance2d(mainTank);
+
+    if (bot->getClass() == CLASS_HUNTER)
     {
-        botAI->Reset();
-
-        // Calculate direction vector to main tank
-        float dx = mainTank->GetPositionX() - bot->GetPositionX();
-        float dy = mainTank->GetPositionY() - bot->GetPositionY();
-
-        // Normalize and scale to 2f increments
-        float distance = sqrt(dx * dx + dy * dy);
-        if (distance > 0)
+        // Hunters maintain a longer leash — move in 2-yard steps to avoid jitter
+        if (distToTank > 20.0f)
         {
-            dx = dx / distance * 2.0f;
-            dy = dy / distance * 2.0f;
-
-            // Calculate new position (2f closer to main tank)
-            float newX = bot->GetPositionX() + dx;
-            float newY = bot->GetPositionY() + dy;
-
-            MoveTo(bot->GetMapId(), newX, newY, bot->GetPositionZ(), false, false, false, true,
-                   MovementPriority::MOVEMENT_FORCED, true, false);
+            float const dx = mainTank->GetPositionX() - bot->GetPositionX();
+            float const dy = mainTank->GetPositionY() - bot->GetPositionY();
+            float const len = std::hypot(dx, dy);
+            if (len > 0.01f)
+            {
+                MoveTo(bot->GetMapId(), bot->GetPositionX() + (dx / len) * 2.0f,
+                       bot->GetPositionY() + (dy / len) * 2.0f, bot->GetPositionZ(), false, false, false, true,
+                       MovementPriority::MOVEMENT_FORCED, true, false);
+            }
         }
     }
-
-    if (bot->GetDistance2d(mainTank->GetPositionX(), mainTank->GetPositionY()) > 1.0f && (bot->getClass() != CLASS_HUNTER))
+    else
     {
-        botAI->Reset();
-        MoveTo(bot->GetMapId(), mainTank->GetPositionX(), mainTank->GetPositionY(), bot->GetPositionZ(), false, false,
-               false, true, MovementPriority::MOVEMENT_FORCED, true, false);
+        // Everyone else stacks on main tank; 3-yard threshold avoids micro-jitter
+        if (distToTank > 3.0f)
+            MoveTo(bot->GetMapId(), mainTank->GetPositionX(), mainTank->GetPositionY(), bot->GetPositionZ(), false,
+                   false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
     }
 }
 
 void IccLichKingAddsAction::HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff)
 {
-    if (!boss || !botAI->IsRanged(bot) || boss->HealthBelowPct(71) || hasPlague)
+    if (!boss || !botAI->IsRanged(bot) || boss->HealthBelowPct(71) || hasPlague || IsHeroicLk(diff))
         return;
 
-    if (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC)
-        return;
-
-    float currentDist = bot->GetDistance(ICC_LICH_KING_RANGED_POSITION);
-    if (currentDist > 2.0f)
-    {
+    if (bot->GetDistance(ICC_LICH_KING_RANGED_POSITION) > 2.0f)
         MoveTo(bot->GetMapId(), ICC_LICH_KING_RANGED_POSITION.GetPositionX(),
                ICC_LICH_KING_RANGED_POSITION.GetPositionY(), ICC_LICH_KING_RANGED_POSITION.GetPositionZ(), false, false,
                false, true, MovementPriority::MOVEMENT_FORCED, true, false);
-    }
 }
 
 void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
@@ -8303,137 +7868,89 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
     if (!boss)
         return;
 
-    // Constants
-    const float BASE_RADIUS = 6.0f;
-    const float SAFETY_MARGIN = 3.0f;
-    const float MOVE_DISTANCE = 5.0f;
-    const float SPREAD_DISTANCE = 12.0f;
-    const float FIXED_Z = 840.857f;
-    const float MAX_HEIGHT_DIFF = 5.0f;
-    const float MIN_PLAYER_SPACING = 5.0f;
-    const float MAX_BOSS_DISTANCE = 40.0f;
-    const int ANGLE_TESTS = 16;
-    const int MAX_ANGLE_OFFSETS = 8;
+    static constexpr float SAFETY_MARGIN = 3.0f;
+    static constexpr float MOVE_DISTANCE = 5.0f;
+    static constexpr float SPREAD_DISTANCE = 12.0f;
+    static constexpr float FIXED_Z = 840.857f;
+    static constexpr float MAX_HEIGHT_DIFF = 5.0f;
+    static constexpr float MIN_SPACING = 5.0f;
+    static constexpr float MAX_BOSS_DIST = 40.0f;
+    static constexpr int ANGLE_TESTS = 16;
+    static constexpr int MAX_OFFSETS = 8;
 
-    // Gather all defile units
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
     std::vector<Unit*> defiles;
-    float closestDistance = std::numeric_limits<float>::max();
-
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    for (auto& npc : npcs)
+    for (ObjectGuid const& guid : npcs)
     {
-        Unit* unit = botAI->GetUnit(npc);
+        Unit* unit = botAI->GetUnit(guid);
         if (unit && unit->IsAlive() && unit->GetEntry() == DEFILE_NPC_ID)
-        {
             defiles.push_back(unit);
-            float dist = bot->GetDistance(unit);
-            if (dist < closestDistance)
-                closestDistance = dist;
-        }
     }
 
-    // Only process defile avoidance if defiles exist
+    // ── Active defile avoidance ───────────────────────────────────────────────
     if (!defiles.empty())
     {
-        // Check if we need to move away from defiles
+        float const botX = bot->GetPositionX();
+        float const botY = bot->GetPositionY();
+
         bool needToMove = false;
-        float botX = bot->GetPositionX();
-        float botY = bot->GetPositionY();
-
-        for (Unit* defile : defiles)
+        for (Unit const* defile : defiles)
         {
-            if (!defile || !defile->IsAlive())
-                continue;
-
-            // Calculate current defile radius including growth
-            float currentRadius = BASE_RADIUS;
-            Aura* growAura = nullptr;
-
-            // Find growth aura
-            for (size_t i = 0; i < DEFILE_AURA_COUNT; i++)
-            {
-                growAura = defile->GetAura(DEFILE_AURAS[i]);
-                if (growAura)
-                    break;
-            }
-
-            if (growAura)
-            {
-                uint8 stacks = growAura->GetStackAmount();
-                float growthMultiplier =
-                    (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_10MAN_NORMAL) ? 1.4f : 0.95f;
-                currentRadius = BASE_RADIUS + (stacks * growthMultiplier);
-            }
-
-            // Check if bot is too close to this defile
-            float dx = botX - defile->GetPositionX();
-            float dy = botY - defile->GetPositionY();
-            float distanceToCenter = sqrt(dx * dx + dy * dy);
-
-            if (distanceToCenter < (currentRadius + SAFETY_MARGIN))
+            float const radius = GetDefileEffectiveRadius(defile, diff);
+            float const dist = std::hypot(botX - defile->GetPositionX(), botY - defile->GetPositionY());
+            if (dist < radius + SAFETY_MARGIN)
             {
                 needToMove = true;
                 break;
             }
         }
 
-        // Move away from defiles if needed
         if (needToMove)
         {
+            float bestScore = 0.0f;
             float bestAngle = 0.0f;
-            float maxSafetyScore = 0.0f;
-            bool foundSafePosition = false;
+            bool found = false;
 
-            // Test multiple angles to find safest escape route
-            for (int i = 0; i < ANGLE_TESTS; i++)
+            for (int i = 0; i < ANGLE_TESTS; ++i)
             {
-                float testAngle = i * M_PI / 8;
-                float testX = botX + MOVE_DISTANCE * cos(testAngle);
-                float testY = botY + MOVE_DISTANCE * sin(testAngle);
+                float const angle = i * float(M_PI) / 8.0f;
+                float const testX = botX + MOVE_DISTANCE * std::cos(angle);
+                float const testY = botY + MOVE_DISTANCE * std::sin(angle);
                 float testZ = FIXED_Z;
 
                 bot->UpdateAllowedPositionZ(testX, testY, testZ);
 
-                // Skip invalid positions (LOS and height check)
-                if (!bot->IsWithinLOS(testX, testY, testZ) || fabs(testZ - bot->GetPositionZ()) >= MAX_HEIGHT_DIFF)
+                if (!bot->IsWithinLOS(testX, testY, testZ) || std::abs(testZ - bot->GetPositionZ()) >= MAX_HEIGHT_DIFF)
                     continue;
 
-                // Calculate minimum distance to any defile from this position
-                float minDefileDistance = std::numeric_limits<float>::max();
-                for (Unit* defile : defiles)
+                float minDefileDist = std::numeric_limits<float>::max();
+                for (Unit const* defile : defiles)
                 {
-                    if (!defile || !defile->IsAlive())
-                        continue;
-
-                    float dx = testX - defile->GetPositionX();
-                    float dy = testY - defile->GetPositionY();
-                    float dist = sqrt(dx * dx + dy * dy);
-                    minDefileDistance = std::min(minDefileDistance, dist);
+                    float const d = std::hypot(testX - defile->GetPositionX(), testY - defile->GetPositionY());
+                    minDefileDist = std::min(minDefileDist, d);
                 }
 
-                // Calculate scoring (safety + boss proximity)
-                float distanceToBoss = boss->GetDistance2d(testX, testY);
-                float safetyScore = minDefileDistance;
-                float bossScore = 100.0f - std::min(100.0f, distanceToBoss);
-                float totalScore = safetyScore + (bossScore * 0.5f);
+                float const bossProximity = 100.0f - std::min(100.0f, boss->GetDistance2d(testX, testY));
+                float const score = minDefileDist + bossProximity * 0.5f;
 
-                if (totalScore > maxSafetyScore)
+                if (score > bestScore)
                 {
-                    maxSafetyScore = totalScore;
-                    bestAngle = testAngle;
-                    foundSafePosition = true;
+                    bestScore = score;
+                    bestAngle = angle;
+                    found = true;
                 }
             }
 
-            // Execute movement if safe position found
-            if (foundSafePosition && maxSafetyScore > 0)
+            if (found)
             {
-                float moveX = botX + MOVE_DISTANCE * cos(bestAngle);
-                float moveY = botY + MOVE_DISTANCE * sin(bestAngle);
+                float moveX = botX + MOVE_DISTANCE * std::cos(bestAngle);
+                float moveY = botY + MOVE_DISTANCE * std::sin(bestAngle);
                 float moveZ = FIXED_Z;
 
+                // Interrupt spell cast rather than calling botAI->Reset() (avoids freeze)
                 if (bot->HasUnitState(UNIT_STATE_CASTING))
-                    botAI->Reset();
+                    bot->InterruptNonMeleeSpells(false);
 
                 bot->UpdateAllowedPositionZ(moveX, moveY, moveZ);
                 MoveTo(bot->GetMapId(), moveX, moveY, moveZ, false, false, false, true,
@@ -8442,199 +7959,145 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
         }
     }
 
-    // Handle Defile cast - spread positioning
-    if (boss->HasUnitState(UNIT_STATE_CASTING) && boss->FindCurrentSpellBySpellId(DEFILE_CAST_ID))
+    // ── Defile cast: pre-spread positioning ───────────────────────────────────
+    if (!boss->HasUnitState(UNIT_STATE_CASTING) || !boss->FindCurrentSpellBySpellId(DEFILE_CAST_ID))
+        return;
+
+    Map::PlayerList const& players = bot->GetMap()->GetPlayers();
+    uint32 playerCount = 0;
+    uint32 botIndex = 0;
+    uint32 idx = 0;
+
+    float const botX = bot->GetPositionX();
+    float const botY = bot->GetPositionY();
+
+    for (Map::PlayerList::const_iterator itr = players.begin(); itr != players.end(); ++itr)
     {
-        // Count players and determine bot's index
-        uint32 playerCount = 0;
-        uint32 botIndex = 0;
-        uint32 currentIndex = 0;
+        Player* player = itr->GetSource();
+        if (!player || !player->IsAlive())
+            continue;
 
-        float botX = bot->GetPositionX();
-        float botY = bot->GetPositionY();
+        if (player == bot)
+            botIndex = idx;
 
-        Map::PlayerList const& players = bot->GetMap()->GetPlayers();
-        for (Map::PlayerList::const_iterator itr = players.begin(); itr != players.end(); ++itr)
+        ++idx;
+        ++playerCount;
+    }
+
+    if (playerCount == 0)
+        return;
+
+    float const preferredAngle = (float(botIndex) / float(playerCount)) * 2.0f * float(M_PI);
+    float bestAngle = preferredAngle;
+    bool foundSpot = false;
+
+    for (int offset = 0; offset <= MAX_OFFSETS && !foundSpot; ++offset)
+    {
+        for (int dir : {-1, 1})
         {
-            Player* player = itr->GetSource();
-            if (!player || !player->IsAlive())
+            if (offset == 0 && dir > 0)
                 continue;
 
-            if (player == bot)
-                botIndex = currentIndex;
+            float const testAngle = preferredAngle + dir * offset * float(M_PI) / 16.0f;
+            float const testX = botX + SPREAD_DISTANCE * std::cos(testAngle);
+            float const testY = botY + SPREAD_DISTANCE * std::sin(testAngle);
+            float testZ = FIXED_Z;
 
-            currentIndex++;
-            playerCount++;
-        }
+            bot->UpdateAllowedPositionZ(testX, testY, testZ);
 
-        // Calculate preferred spread angle based on bot index
-        float preferredAngle = (float(botIndex) / float(playerCount)) * 2 * M_PI;
-        bool foundSafeSpot = false;
-        float bestSpreadAngle = preferredAngle;
+            if (!bot->IsWithinLOS(testX, testY, testZ) || std::abs(testZ - bot->GetPositionZ()) >= MAX_HEIGHT_DIFF ||
+                boss->GetDistance2d(testX, testY) > MAX_BOSS_DIST)
+                continue;
 
-        // Try positions starting from preferred angle, expanding outward
-        for (int offset = 0; offset <= MAX_ANGLE_OFFSETS && !foundSafeSpot; offset++)
-        {
-            for (int direction = -1; direction <= 1; direction += 2)
+            // Check defile safety at spread position
+            bool safeFromDefiles = true;
+            for (Unit const* defile : defiles)
             {
-                if (offset == 0 && direction > 0)  // Skip duplicate check of preferred angle
-                    continue;
-
-                float testAngle = preferredAngle + (direction * offset * M_PI / 16);
-                float testX = botX + SPREAD_DISTANCE * cos(testAngle);
-                float testY = botY + SPREAD_DISTANCE * sin(testAngle);
-                float testZ = FIXED_Z;
-
-                bot->UpdateAllowedPositionZ(testX, testY, testZ);
-
-                // Validate position basics (LOS and height)
-                if (!bot->IsWithinLOS(testX, testY, testZ) || fabs(testZ - bot->GetPositionZ()) >= MAX_HEIGHT_DIFF)
-                    continue;
-
-                // Check boss distance
-                if (boss->GetDistance2d(testX, testY) > MAX_BOSS_DISTANCE)
-                    continue;
-
-                // Check safety from all defiles (only if defiles exist)
-                bool safeFromDefiles = true;
-                for (Unit* defile : defiles)
+                float const radius = GetDefileEffectiveRadius(defile, diff);
+                float const dist = std::hypot(testX - defile->GetPositionX(), testY - defile->GetPositionY());
+                if (dist < radius + SAFETY_MARGIN)
                 {
-                    if (!defile || !defile->IsAlive())
-                        continue;
-
-                    // Calculate current defile radius including growth
-                    float currentRadius = BASE_RADIUS;
-                    Aura* growAura = nullptr;
-
-                    // Find growth aura
-                    for (size_t i = 0; i < DEFILE_AURA_COUNT; i++)
-                    {
-                        growAura = defile->GetAura(DEFILE_AURAS[i]);
-                        if (growAura)
-                            break;
-                    }
-
-                    if (growAura)
-                    {
-                        uint8 stacks = growAura->GetStackAmount();
-                        float growthMultiplier =
-                            (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_10MAN_NORMAL) ? 1.4f
-                                                                                                           : 0.95f;
-                        currentRadius = BASE_RADIUS + (stacks * growthMultiplier);
-                    }
-
-                    float dx = testX - defile->GetPositionX();
-                    float dy = testY - defile->GetPositionY();
-                    float distToDefile = sqrt(dx * dx + dy * dy);
-
-                    if (distToDefile < (currentRadius + SAFETY_MARGIN))
-                    {
-                        safeFromDefiles = false;
-                        break;
-                    }
+                    safeFromDefiles = false;
+                    break;
                 }
-
-                if (!safeFromDefiles)
-                    continue;
-
-                // Check spacing from other players
-                bool tooCloseToPlayers = false;
-                for (Map::PlayerList::const_iterator playerItr = players.begin(); playerItr != players.end();
-                     ++playerItr)
-                {
-                    Player* player = playerItr->GetSource();
-                    if (!player || !player->IsAlive() || player == bot)
-                        continue;
-
-                    float dx = testX - player->GetPositionX();
-                    float dy = testY - player->GetPositionY();
-                    float dist = sqrt(dx * dx + dy * dy);
-
-                    if (dist < MIN_PLAYER_SPACING)
-                    {
-                        tooCloseToPlayers = true;
-                        break;
-                    }
-                }
-
-                if (tooCloseToPlayers)
-                    continue;
-
-                // Found valid position
-                bestSpreadAngle = testAngle;
-                foundSafeSpot = true;
-                break;
             }
-        }
+            if (!safeFromDefiles)
+                continue;
 
-        // Execute spread movement if safe spot found
-        if (foundSafeSpot)
-        {
-            float spreadX = botX + SPREAD_DISTANCE * cos(bestSpreadAngle);
-            float spreadY = botY + SPREAD_DISTANCE * sin(bestSpreadAngle);
-            float spreadZ = FIXED_Z;
+            // Maintain spacing from other players
+            bool tooClose = false;
+            for (Map::PlayerList::const_iterator pItr = players.begin(); pItr != players.end(); ++pItr)
+            {
+                Player* player = pItr->GetSource();
+                if (!player || !player->IsAlive() || player == bot)
+                    continue;
 
-            bot->UpdateAllowedPositionZ(spreadX, spreadY, spreadZ);
-            MoveTo(bot->GetMapId(), spreadX, spreadY, spreadZ, false, false, false, false,
-                   MovementPriority::MOVEMENT_COMBAT);
+                if (std::hypot(testX - player->GetPositionX(), testY - player->GetPositionY()) < MIN_SPACING)
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (tooClose)
+                continue;
+
+            bestAngle = testAngle;
+            foundSpot = true;
+            break;
         }
+    }
+
+    if (foundSpot)
+    {
+        float spreadX = botX + SPREAD_DISTANCE * std::cos(bestAngle);
+        float spreadY = botY + SPREAD_DISTANCE * std::sin(bestAngle);
+        float spreadZ = FIXED_Z;
+
+        bot->UpdateAllowedPositionZ(spreadX, spreadY, spreadZ);
+        MoveTo(bot->GetMapId(), spreadX, spreadY, spreadZ, false, false, false, false,
+               MovementPriority::MOVEMENT_COMBAT);
     }
 }
 
 void IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
 {
-    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
-    std::vector<Unit*> grabbingValkyrs;
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
-
-    // Find grabbing Val'kyrs
-    for (auto& npc : npcs)
-    {
-        Unit* unit = botAI->GetUnit(npc);
-        if (!unit || !unit->IsAlive())
-            continue;
-
-        if (unit->GetEntry() == NPC_VALKYR_SHADOWGUARD1 || unit->GetEntry() == NPC_VALKYR_SHADOWGUARD2 ||
-            unit->GetEntry() == NPC_VALKYR_SHADOWGUARD3 || unit->GetEntry() == NPC_VALKYR_SHADOWGUARD4)
-        {
-            bool isGrabbing = false;
-
-            if (diff && !(diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
-            {
-                if (unit->HasAura(SPELL_HARVEST_SOUL_VALKYR))
-                    isGrabbing = true;
-            }
-            else
-            {
-                if (unit->HasAura(SPELL_HARVEST_SOUL_VALKYR) && unit->HealthAbovePct(49))
-                    isGrabbing = true;
-            }
-
-            if (isGrabbing)
-                grabbingValkyrs.push_back(unit);
-        }
-    }
-
     Group* group = bot->GetGroup();
     if (!group)
         return;
 
-    // If no grabbing Val'kyrs, mark the Lich King with skull
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    std::vector<Unit*> grabbingValkyrs;
+    for (ObjectGuid const& guid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || !IsLkValkyr(unit))
+            continue;
+
+        // Heroic: only target Val'kyrs above 49% health (below that they die
+        // from sheer damage pressure before they can throw anyone)
+        bool const isGrabbing =
+            unit->HasAura(SPELL_HARVEST_SOUL_VALKYR) && (!IsHeroicLk(diff) || unit->HealthAbovePct(49));
+
+        if (isGrabbing)
+            grabbingValkyrs.push_back(unit);
+    }
+
+    // No active Val'kyrs — mark the boss during the window between grabs
     if (grabbingValkyrs.empty() || (boss && boss->HealthBelowPct(43)))
     {
-        // Find the Lich King
-        for (auto& npc : npcs)
+        for (ObjectGuid const& guid : npcs)
         {
-            Unit* unit = botAI->GetUnit(npc);
-            if (unit && unit->IsAlive() && unit->GetEntry() == NPC_THE_LICH_KING && unit->HealthBelowPct(68) && unit->HealthAbovePct(40))
-            {
-                ObjectGuid currentSkull = group->GetTargetIcon(7);  // Skull icon
-                if (currentSkull != unit->GetGUID())
-                {
-                    group->SetTargetIcon(7, bot->GetGUID(), unit->GetGUID());
-                }
-                break;
-            }
+            Unit* unit = botAI->GetUnit(guid);
+            if (!unit || !unit->IsAlive() || unit->GetEntry() != NPC_THE_LICH_KING)
+                continue;
+            if (!unit->HealthBelowPct(68) || unit->HealthBelowPct(40))
+                continue;
+
+            if (group->GetTargetIcon(7) != unit->GetGUID())
+                group->SetTargetIcon(7, bot->GetGUID(), unit->GetGUID());
+            break;
         }
         return;
     }
@@ -8642,76 +8105,54 @@ void IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
     if (botAI->IsMainTank(bot))
         return;
 
-    // Filter out dead Val'kyrs to ensure accurate group calculation
-    std::vector<Unit*> aliveGrabbingValkyrs;
-    for (Unit* valkyr : grabbingValkyrs)
-    {
-        if (valkyr && valkyr->IsAlive())
-            aliveGrabbingValkyrs.push_back(valkyr);
-    }
-
-    if (aliveGrabbingValkyrs.empty())
-        return;
-
-    HandleValkyrMarking(aliveGrabbingValkyrs, diff);
-    HandleValkyrAssignment(aliveGrabbingValkyrs);
+    HandleValkyrMarking(grabbingValkyrs, diff);
+    HandleValkyrAssignment(grabbingValkyrs);
 }
 
-void IccLichKingAddsAction::HandleValkyrMarking(const std::vector<Unit*>& grabbingValkyrs, Difficulty diff)
+void IccLichKingAddsAction::HandleValkyrMarking(std::vector<Unit*> const& grabbingValkyrs, Difficulty diff)
 {
     Group* group = bot->GetGroup();
     if (!group)
         return;
 
-    // Sort Val'kyrs by their GUID to ensure consistent ordering
-    std::vector<Unit*> sortedValkyrs = grabbingValkyrs;
-    std::sort(sortedValkyrs.begin(), sortedValkyrs.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
+    std::vector<Unit*> sorted = grabbingValkyrs;
+    std::sort(sorted.begin(), sorted.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
 
-    static constexpr uint8_t ICON_INDICES[] = {7, 6, 0};  // Skull, Cross, Star
+    static constexpr std::array<uint8_t, 3> Icons = {7, 6, 0};  // Skull, Cross, Star
 
-    // In heroic mode, clean up invalid markers for all possible icons
-    if (diff && (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
+    // Heroic: clear stale markers for Val'kyrs no longer grabbing or at wrong Z
+    if (IsHeroicLk(diff))
     {
-        for (size_t i = 0; i < 3; ++i)
+        for (uint8_t const iconIdx : Icons)
         {
-            ObjectGuid currentIcon = group->GetTargetIcon(ICON_INDICES[i]);
-            Unit* currentIconUnit = botAI->GetUnit(currentIcon);
+            Unit* marked = botAI->GetUnit(group->GetTargetIcon(iconIdx));
+            if (!marked || !IsLkValkyr(marked))
+                continue;
 
-            if (currentIconUnit && IsValkyr(currentIconUnit))
-            {
-                bool shouldRemoveMarker = !currentIconUnit->HasAura(SPELL_HARVEST_SOUL_VALKYR) ||
-                                          std::abs(currentIconUnit->GetPositionZ() - bot->GetPositionZ()) > 5.0f;
-
-                if (shouldRemoveMarker)
-                    group->SetTargetIcon(ICON_INDICES[i], bot->GetGUID(), ObjectGuid::Empty);
-            }
+            bool const stale = !marked->HasAura(SPELL_HARVEST_SOUL_VALKYR) ||
+                               std::abs(marked->GetPositionZ() - bot->GetPositionZ()) > 5.0f;
+            if (stale)
+                group->SetTargetIcon(iconIdx, bot->GetGUID(), ObjectGuid::Empty);
         }
     }
 
-    // Clear unused markers if we have fewer Val'kyrs than icons
-    for (size_t i = sortedValkyrs.size(); i < 3; ++i)
+    // Clear icon slots beyond the current Val'kyr count
+    for (size_t i = sorted.size(); i < Icons.size(); ++i)
     {
-        ObjectGuid currentIcon = group->GetTargetIcon(ICON_INDICES[i]);
-        if (!currentIcon.IsEmpty())
-        {
-            group->SetTargetIcon(ICON_INDICES[i], bot->GetGUID(), ObjectGuid::Empty);
-        }
+        if (!group->GetTargetIcon(Icons[i]).IsEmpty())
+            group->SetTargetIcon(Icons[i], bot->GetGUID(), ObjectGuid::Empty);
     }
 
-    // Mark each alive Val'kyr with appropriate icon
-    for (size_t i = 0; i < sortedValkyrs.size() && i < 3; ++i)
+    // Assign an icon to each active Val'kyr
+    for (size_t i = 0; i < sorted.size() && i < Icons.size(); ++i)
     {
-        ObjectGuid currentIcon = group->GetTargetIcon(ICON_INDICES[i]);
-        Unit* currentIconUnit = botAI->GetUnit(currentIcon);
-
-        if (!currentIconUnit || currentIconUnit != sortedValkyrs[i])
-        {
-            group->SetTargetIcon(ICON_INDICES[i], bot->GetGUID(), sortedValkyrs[i]->GetGUID());
-        }
+        Unit* marked = botAI->GetUnit(group->GetTargetIcon(Icons[i]));
+        if (!marked || marked != sorted[i])
+            group->SetTargetIcon(Icons[i], bot->GetGUID(), sorted[i]->GetGUID());
     }
 }
 
-void IccLichKingAddsAction::HandleValkyrAssignment(const std::vector<Unit*>& grabbingValkyrs)
+void IccLichKingAddsAction::HandleValkyrAssignment(std::vector<Unit*> const& grabbingValkyrs)
 {
     Group* group = bot->GetGroup();
     if (!group)
@@ -8721,113 +8162,107 @@ void IccLichKingAddsAction::HandleValkyrAssignment(const std::vector<Unit*>& gra
     if (boss && boss->HealthBelowPct(40))
         return;
 
-    // Double-check that all Val'kyrs in the list are actually alive and valid targets
-    std::vector<Unit*> validValkyrs;
+    std::vector<Unit*> valid;
     for (Unit* valkyr : grabbingValkyrs)
     {
         if (valkyr && valkyr->IsAlive() && valkyr->HasAura(SPELL_HARVEST_SOUL_VALKYR))
-        {
-            validValkyrs.push_back(valkyr);
-        }
+            valid.push_back(valkyr);
     }
-
-    if (validValkyrs.empty())
+    if (valid.empty())
         return;
 
-    // Sort valid Val'kyrs for consistent assignment
-    std::sort(validValkyrs.begin(), validValkyrs.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
+    std::sort(valid.begin(), valid.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
 
-    // Get all non-main-tank members (DPS, healers, and off-tanks)
+    // Build sorted list of non-main-tank members for deterministic assignment
     std::vector<Player*> assistMembers;
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
     {
         Player* member = itr->GetSource();
         if (member && !botAI->IsMainTank(member))
             assistMembers.push_back(member);
     }
-
     if (assistMembers.empty())
         return;
 
-    // Sort assist members by GUID for consistent assignment
     std::sort(assistMembers.begin(), assistMembers.end(),
               [](Player* a, Player* b) { return a->GetGUID() < b->GetGUID(); });
 
-    // Find our position among assist members
-    auto it = std::find(assistMembers.begin(), assistMembers.end(), bot);
+    auto const it = std::find(assistMembers.begin(), assistMembers.end(), bot);
     if (it == assistMembers.end())
-        return;  // We're main tank, shouldn't handle Val'kyrs
+        return;
 
-    size_t myAssistIndex = std::distance(assistMembers.begin(), it);
-    size_t totalAssist = assistMembers.size();
-    size_t aliveValkyrs = validValkyrs.size();
+    size_t const myIndex = std::distance(assistMembers.begin(), it);
+    auto const groupSizes = CalculateBalancedGroupSizes(assistMembers.size(), valid.size());
+    size_t const valkyrIndex = GetAssignedValkyrIndex(myIndex, groupSizes);
 
-    // Calculate balanced group sizes
-    std::vector<size_t> groupSizes = CalculateBalancedGroupSizes(totalAssist, aliveValkyrs);
+    if (valkyrIndex >= valid.size())
+        return;
 
-    // Determine which Val'kyr this bot should target
-    size_t assignedValkyrIndex = GetAssignedValkyrIndex(myAssistIndex, groupSizes);
+    Unit* myValkyr = valid[valkyrIndex];
+    context->GetValue<std::string>("rti")->Set(GetRTIValueForValkyr(valkyrIndex));
 
-    if (assignedValkyrIndex < validValkyrs.size())
+    bot->SetTarget(myValkyr->GetGUID());
+    bot->SetFacingToObject(myValkyr);
+
+    Difficulty const diff = bot->GetRaidDifficulty();
+    if (sPlayerbotAIConfig.EnableICCBuffs && diff && IsHeroicLk(diff) && !myValkyr->HasAura(SPELL_HAMMER_OF_JUSTICE))
+        bot->AddAura(SPELL_HAMMER_OF_JUSTICE, myValkyr);
+
+    ApplyCCToValkyr(myValkyr);
+}
+
+void IccLichKingAddsAction::HandleVileSpiritMechanics()
+{
+    static constexpr float SAFE_RADIUS = 12.0f;
+
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    for (ObjectGuid const& guid : npcs)
     {
-        Unit* myValkyr = validValkyrs[assignedValkyrIndex];
+        Unit* unit = botAI->GetUnit(guid);
+        if (!IsLkVileSpirit(unit))
+            continue;
 
-        // Set RTI context based on assignment
-        std::string rtiValue = GetRTIValueForValkyr(assignedValkyrIndex);
-        context->GetValue<std::string>("rti")->Set(rtiValue);
+        if (!unit->GetVictim() || unit->GetVictim()->GetGUID() != bot->GetGUID())
+            continue;
 
-        // Attack and apply CC
-        bot->SetTarget(myValkyr->GetGUID());
-        bot->SetFacingToObject(myValkyr);
-        Difficulty diff = bot->GetRaidDifficulty();
-
-        if (sPlayerbotAIConfig.EnableICCBuffs && diff && (diff == RAID_DIFFICULTY_10MAN_HEROIC || diff == RAID_DIFFICULTY_25MAN_HEROIC))
-        {
-            //---------CHEAT---------
-            if (!myValkyr->HasAura(SPELL_HAMMER_OF_JUSTICE))
-                bot->AddAura(SPELL_HAMMER_OF_JUSTICE, myValkyr);
-            //---------CHEAT---------
-        }
-        ApplyCCToValkyr(myValkyr);
+        float const dist = bot->GetDistance2d(unit);
+        if (dist < SAFE_RADIUS)
+            MoveAway(unit, SAFE_RADIUS - dist);
     }
 }
+
+// IsValkyr and IsValidCollectibleAdd are now file-scope — keep thin wrappers
+// for any external callers still using the method form
+bool IccLichKingAddsAction::IsValkyr(Unit* unit) { return IsLkValkyr(unit); }
 
 std::vector<size_t> IccLichKingAddsAction::CalculateBalancedGroupSizes(size_t totalAssist, size_t numValkyrs)
 {
     std::vector<size_t> groupSizes(numValkyrs, 0);
-
     if (numValkyrs == 0)
         return groupSizes;
 
-    // Base size for each group
-    size_t baseSize = totalAssist / numValkyrs;
-    size_t remainder = totalAssist % numValkyrs;
+    size_t const baseSize = totalAssist / numValkyrs;
+    size_t const remainder = totalAssist % numValkyrs;
 
-    // Distribute assist members as evenly as possible
     for (size_t i = 0; i < numValkyrs; ++i)
     {
         groupSizes[i] = baseSize;
         if (i < remainder)
-            groupSizes[i]++;  // Add extra member to first 'remainder' groups
+            ++groupSizes[i];
     }
-
     return groupSizes;
 }
 
-size_t IccLichKingAddsAction::GetAssignedValkyrIndex(size_t assistIndex, const std::vector<size_t>& groupSizes)
+size_t IccLichKingAddsAction::GetAssignedValkyrIndex(size_t assistIndex, std::vector<size_t> const& groupSizes)
 {
-    size_t currentIndex = 0;
-
+    size_t cursor = 0;
     for (size_t valkyrIndex = 0; valkyrIndex < groupSizes.size(); ++valkyrIndex)
     {
-        if (assistIndex < currentIndex + groupSizes[valkyrIndex])
+        if (assistIndex < cursor + groupSizes[valkyrIndex])
             return valkyrIndex;
-
-        currentIndex += groupSizes[valkyrIndex];
+        cursor += groupSizes[valkyrIndex];
     }
-
-    // Fallback - should not happen with correct logic
-    return 0;
+    return 0;  // fallback — should not be reached with correct input
 }
 
 std::string IccLichKingAddsAction::GetRTIValueForValkyr(size_t valkyrIndex)
@@ -8841,7 +8276,7 @@ std::string IccLichKingAddsAction::GetRTIValueForValkyr(size_t valkyrIndex)
         case 2:
             return "star";
         default:
-            return "skull";  // Fallback
+            return "skull";
     }
 }
 
@@ -8891,37 +8326,5 @@ void IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
             break;
         default:
             break;
-    }
-}
-
-bool IccLichKingAddsAction::IsValkyr(Unit* unit)
-{
-    return unit->GetEntry() == NPC_VALKYR_SHADOWGUARD1 || unit->GetEntry() == NPC_VALKYR_SHADOWGUARD2 ||
-           unit->GetEntry() == NPC_VALKYR_SHADOWGUARD3 || unit->GetEntry() == NPC_VALKYR_SHADOWGUARD4;
-}
-
-void IccLichKingAddsAction::HandleVileSpiritMechanics()
-{
-    const float radiusVile = 12.0f;
-
-    GuidVector npcs3 = AI_VALUE(GuidVector, "nearest hostile npcs");
-    for (auto& npc : npcs3)
-    {
-        Unit* unit = botAI->GetUnit(npc);
-        if (!unit || (unit->GetEntry() != NPC_VILE_SPIRIT1 && unit->GetEntry() != NPC_VILE_SPIRIT2 && unit->GetEntry() != NPC_VILE_SPIRIT3 &&
-                      unit->GetEntry() != NPC_VILE_SPIRIT4))
-            continue;
-
-        // Only run away if the spirit is targeting us
-        if (unit->GetVictim() && unit->GetVictim()->GetGUID() == bot->GetGUID())
-        {
-            float currentDistance = bot->GetDistance2d(unit);
-
-            if (currentDistance < radiusVile)
-            {
-                botAI->Reset();
-                MoveAway(unit, radiusVile - currentDistance);
-            }
-        }
     }
 }
