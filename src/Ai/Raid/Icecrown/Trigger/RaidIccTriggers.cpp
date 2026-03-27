@@ -73,20 +73,23 @@ bool IccGunshipCannonNearTrigger::IsActive()
         return false;
 
     Unit* mount1 = bot->FindNearestCreature(NPC_CANNONA, 100.0f);
-
     Unit* mount2 = bot->FindNearestCreature(NPC_CANNONH, 100.0f);
 
     if (!mount1 && !mount2)
         return false;
 
+    // If cannons have Below Zero aura, don't try to enter them
+    Unit* friendlyCannon = nullptr;
+    if (mount1 && mount1->IsFriendlyTo(bot))
+        friendlyCannon = mount1;
+    else if (mount2 && mount2->IsFriendlyTo(bot))
+        friendlyCannon = mount2;
+
+    if (friendlyCannon && friendlyCannon->HasAura(SPELL_BELOW_ZERO))
+        return false;
+
     if (!botAI->IsDps(bot))
         return false;
-    // Player* master = botAI->GetMaster();
-    // if (!master)
-    //     return false;
-
-    // if (!master->GetVehicle())
-    //     return false;
 
     return true;
 }

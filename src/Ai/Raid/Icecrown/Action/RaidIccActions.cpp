@@ -1284,6 +1284,7 @@ bool IccGunshipTeleportAction::Execute(Event /*event*/)
 {
     static constexpr float MAX_WAITING_DISTANCE = 45.0f;
     static constexpr float MAX_ATTACK_DISTANCE = 15.0f;
+    static constexpr float HOLD_RADIUS = 20.0f;
     static constexpr uint8 SKULL_ICON_INDEX = 7;
 
     GunshipSide const side = DetectShip();
@@ -1298,18 +1299,125 @@ bool IccGunshipTeleportAction::Execute(Event /*event*/)
 
     CleanupSkullIcon(SKULL_ICON_INDEX);
 
-    if (!boss || !boss->IsAlive() || !boss->HasUnitState(UNIT_STATE_CASTING))
+    uint32 const cannonEntry = (side == GunshipSide::ALLY) ? NPC_CANNONA : NPC_CANNONH;
+    bool cannonsHaveBelowZero = false;
+    Unit* cannon = bot->FindNearestCreature(cannonEntry, 100.0f);
+    if (cannon && cannon->IsFriendlyTo(bot) && cannon->HasAura(SPELL_BELOW_ZERO))
+        cannonsHaveBelowZero = true;
+
+    bool const botOnEnemyShip = bot->GetExactDist2d(attackPos) <= MAX_ATTACK_DISTANCE;
+    bool const mageAlive = boss && boss->IsAlive() && boss->HasUnitState(UNIT_STATE_CASTING);
+
+    // Assist tank stays on friendly ship to collect and tank adds
+    if (botAI->IsAssistTank(bot))
+    {
+        GuidVector const npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+        // Find nearest uncollected add near hold position
+        Unit* targetAdd = nullptr;
+        float closestDist = FLT_MAX;
+
+        for (ObjectGuid const& guid : npcs)
+        {
+            Unit* unit = botAI->GetUnit(guid);
+            if (!unit || !unit->IsAlive())
+                continue;
+
+            if (unit->GetExactDist2d(waitPos) > HOLD_RADIUS)
+                continue;
+
+            Unit* victim = unit->GetVictim();
+            bool alreadyTanked = victim && victim->IsPlayer() && botAI->IsTank(victim->ToPlayer());
+            if (alreadyTanked)
+                continue;
+
+            float dist = bot->GetExactDist2d(unit);
+            if (dist < closestDist)
+            {
+                closestDist = dist;
+                targetAdd = unit;
+            }
+        }
+
+        if (targetAdd)
+        {
+            // Taunt the add
+            if (botAI->CastSpell("taunt", targetAdd))
+            {
+            }
+            else
+            {
+                switch (bot->getClass())
+                {
+                    case CLASS_PALADIN:
+                        botAI->CastSpell("hand of reckoning", targetAdd);
+                        break;
+                    case CLASS_DEATH_KNIGHT:
+                        botAI->CastSpell("dark command", targetAdd);
+                        break;
+                    case CLASS_DRUID:
+                        botAI->CastSpell("growl", targetAdd);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            if (bot->GetExactDist2d(targetAdd) > 5.0f)
+            {
+                return MoveTo(bot->GetMapId(), targetAdd->GetPositionX(), targetAdd->GetPositionY(),
+                              targetAdd->GetPositionZ(), false, false, false, false, MovementPriority::MOVEMENT_COMBAT);
+            }
+
+            bot->SetTarget(targetAdd->GetGUID());
+            bot->SetFacingToObject(targetAdd);
+            Attack(targetAdd);
+            return false;
+        }
+
+        // No uncollected adds — keep attacking adds targeting us
+        for (ObjectGuid const& guid : npcs)
+        {
+            Unit* unit = botAI->GetUnit(guid);
+            if (!unit || !unit->IsAlive())
+                continue;
+
+            if (unit->GetExactDist2d(waitPos) > HOLD_RADIUS)
+                continue;
+
+            if (unit->GetVictim() == bot)
+            {
+                bot->SetTarget(unit->GetGUID());
+                bot->SetFacingToObject(unit);
+                Attack(unit);
+                return false;
+            }
+        }
+
+        // No adds — return to hold position if drifted
+        if (bot->GetExactDist2d(waitPos) > HOLD_RADIUS)
+        {
+            return MoveTo(bot->GetMapId(), waitPos.GetPositionX(), waitPos.GetPositionY(), waitPos.GetPositionZ(),
+                          false, false, false, false, MovementPriority::MOVEMENT_NORMAL);
+        }
+
+        return false;
+    }
+
+    // Non-assist-tank teleport logic
+    float const maxWaitingDistance = (side == GunshipSide::ALLY) ? 30.0f : 45.0f;
+
+     // Non-assist-tank teleport logic
+    if (cannonsHaveBelowZero && mageAlive)
+    {
+        UpdateBossSkullIcon(boss, SKULL_ICON_INDEX);
+        if (!botOnEnemyShip)
+            return TeleportTo(attackPos);
+    }
+    else if (!botOnEnemyShip)
     {
         if (bot->GetExactDist2d(waitPos) > MAX_WAITING_DISTANCE)
             return TeleportTo(waitPos);
-    }
-    else if (boss->HasUnitState(UNIT_STATE_CASTING) && boss->FindCurrentSpellBySpellId(SPELL_BELOW_ZERO) &&
-             boss->IsAlive())
-    {
-        UpdateBossSkullIcon(boss, SKULL_ICON_INDEX);
-
-        if (!botAI->IsAssistTank(bot) && bot->GetExactDist2d(attackPos) > MAX_ATTACK_DISTANCE)
-            return TeleportTo(attackPos);
     }
 
     return false;
