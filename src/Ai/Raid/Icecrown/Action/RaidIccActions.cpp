@@ -312,6 +312,26 @@ bool IccAddsLadyDeathwhisperAction::Execute(Event /*event*/)
     else if (bot->HasAura(SPELL_CYCLONE) && !botAI->HasAura("Dominate Mind", bot, false, false))
         bot->RemoveAura(SPELL_CYCLONE);
 
+    // Dominate Mind handling for real players in group
+    if (Group* group = bot->GetGroup())
+    {
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->GetSource();
+            if (!member || !member->IsAlive() || member == bot)
+                continue;
+
+            PlayerbotAI* memberBotAI = GET_PLAYERBOT_AI(member);
+            if (memberBotAI && !memberBotAI->IsRealPlayer())
+                continue;
+
+            if (botAI->HasAura("Dominate Mind", member, false, false) && !member->HasAura(SPELL_CYCLONE))
+                member->AddAura(SPELL_CYCLONE, member);
+            else if (member->HasAura(SPELL_CYCLONE) && !botAI->HasAura("Dominate Mind", member, false, false))
+                member->RemoveAura(SPELL_CYCLONE);
+        }
+    }
+
     const uint32 shadeEntryId = NPC_SHADE;
 
     // Tank behavior
