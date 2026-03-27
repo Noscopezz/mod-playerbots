@@ -4108,6 +4108,9 @@ bool IccBpcKineticBombAction::Execute(Event /*event*/)
     {
         bot->SetTarget(bestBomb->GetGUID());
         bot->SetFacingToObject(bestBomb);
+        //--------bypass for AC bpc bug-----------remove when fixed
+        bot->Kill(bot, bestBomb);
+        //--------bypass for AC bpc bug-----------remove when fixed
         Attack(bestBomb);
     }
 
@@ -4227,6 +4230,11 @@ bool IccBpcBallOfFlameAction::Execute(Event /*event*/)
 
     bool ballOfFlame = flame1 && (flame1->GetVictim() == bot);
     bool infernoFlame = flame2 && (flame2->GetVictim() == bot);
+
+    //--------bypass for AC BPC bug-----------remove when fixed
+    if (flame2 && flame2->IsAlive())
+        bot->Kill(bot, flame2);
+    //--------bypass for AC BPC bug-----------remove when fixed
 
     if (flame2 && (flame2->GetDistance2d(boss) > 2.0f) && !(flame2->GetDistance2d(boss) > 10.0f) && !infernoFlame &&
         bot->getClass() != CLASS_HUNTER)
