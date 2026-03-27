@@ -306,6 +306,7 @@ bool IccAddsLadyDeathwhisperAction::Execute(Event /*event*/)
     if (!boss)
         return false;
 
+    // Dominate Mind handling
     if (botAI->HasAura("Dominate Mind", bot, false, false) && !bot->HasAura(SPELL_CYCLONE))
         bot->AddAura(SPELL_CYCLONE, bot);
     else if (bot->HasAura(SPELL_CYCLONE) && !botAI->HasAura("Dominate Mind", bot, false, false))
@@ -313,27 +314,432 @@ bool IccAddsLadyDeathwhisperAction::Execute(Event /*event*/)
 
     const uint32 shadeEntryId = NPC_SHADE;
 
-    if (botAI->IsTank(bot) && boss && boss->HealthBelowPct(95) && boss->GetVictim() == bot)
+    // Tank behavior
+    if (botAI->IsTank(bot))
     {
-        // Check if the bot is not the victim of a shade
+        // Remove debuff if present
+        if (bot->HasAura(SPELL_TOUCH_OF_INSIGNIFICANCE))
+            bot->RemoveAura(SPELL_TOUCH_OF_INSIGNIFICANCE);
+
+        // If targeted by a shade, ignore (shades are handled elsewhere)
         if (IsTargetedByShade(shadeEntryId))
             return false;
 
-        const float maxDistanceToTankPosition = 20.0f;
-        const float moveIncrement = 3.0f;
-
-        const float distance = bot->GetExactDist2d(ICC_LDW_TANK_POSTION.GetPositionX(), ICC_LDW_TANK_POSTION.GetPositionY());
-
-        if (distance > maxDistanceToTankPosition)
+        // Check if we are already engaged with an add
+        Unit* currentTarget = bot->GetVictim();
+        bool isAttackingAdd = currentTarget && IsAdd(currentTarget);
+        if (isAttackingAdd && currentTarget->IsAlive())
         {
-            return MoveTowardPosition(ICC_LDW_TANK_POSTION, moveIncrement);
+            // Already have an add – mark it if we are the designated marker
+            if (botAI->IsAssistTank(bot) || !IsAssistTankAlive())
+                UpdateRaidTargetIcon(currentTarget);
+            return false;  // let combat AI handle attacking
+        }
+
+        // No add currently attacked – try to collect a loose add
+        Unit* targetAdd = FindAndCollectAdd();
+
+        if (targetAdd)
+        {
+            // Mark the add if we are the designated marker
+            if (botAI->IsAssistTank(bot) || !IsAssistTankAlive())
+                UpdateRaidTargetIcon(targetAdd);
+
+            // Ensure we are facing and attacking it
+            bot->SetTarget(targetAdd->GetGUID());
+            bot->SetFacingToObject(targetAdd);
+            Attack(targetAdd);
+            return true;
+        }
+
+        // No adds alive – engage boss
+        if (boss->IsAlive())
+        {
+            // Only mark the boss if we are the one actively tanking it and no assist tank
+            if (!IsAssistTankAlive() && boss->GetVictim() == bot)
+                UpdateRaidTargetIcon(boss);
+
+            bot->SetTarget(boss->GetGUID());
+            bot->SetFacingToObject(boss);
+            Attack(boss);
+        }
+
+        return false;
+    }
+
+    // Non-tank behavior
+    // 1. If targeted by an add: apply CC and move toward the nearest tank
+    if (HandleNonTankAddEvasion())
+        return false;
+
+    // 2. Even if not targeted, apply CC to nearby adds to help tanks
+    ApplyNearbyAddCC();
+
+    // 3. If no adds are alive, engage the boss
+    if (IsAddsAlive())
+        return false;  // adds still present, we already handled evasion/CC
+
+    // No adds – move to appropriate position and attack boss
+    if (boss->HealthAbovePct(95))
+        return EngageBoss();
+
+    return false;
+}
+
+Unit* IccAddsLadyDeathwhisperAction::FindAndCollectAdd()
+{
+    const GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    Unit* bestAdd = nullptr;
+    float bestScore = FLT_MAX;  // lower score is better
+
+    for (auto const& npcGuid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(npcGuid);
+        if (!unit || !unit->IsAlive())
+            continue;
+
+        // Only consider Lady Deathwhisper adds
+        if (!IsAdd(unit))
+            continue;
+
+        // Skip adds already tanked by another tank (victim is a tank player)
+        Unit* victim = unit->GetVictim();
+        if (victim && victim->IsPlayer() && botAI->IsTank(victim->ToPlayer()))
+            continue;
+
+        // Score: distance (closer is better) + penalty if the add is currently targeting someone else
+        float distance = bot->GetExactDist(unit);
+        float score = distance;
+        if (victim && victim != bot)
+            score += 5.0f;  // slight penalty to encourage picking adds already on us
+
+        if (score < bestScore)
+        {
+            bestScore = score;
+            bestAdd = unit;
         }
     }
 
-    if (!botAI->IsTank(bot))
+    if (!bestAdd)
+        return nullptr;
+
+    // Move into range and taunt
+    float tauntRange = 30.0f;  // typical taunt range
+    float currentDist = bot->GetExactDist(bestAdd);
+
+    if (currentDist > tauntRange)
+    {
+        // Move toward the add in increments until in taunt range
+        float moveX = bot->GetPositionX();
+        float moveY = bot->GetPositionY();
+        float moveZ = bot->GetPositionZ();
+        float step = 5.0f;
+        float dx = bestAdd->GetPositionX() - bot->GetPositionX();
+        float dy = bestAdd->GetPositionY() - bot->GetPositionY();
+        float dist = sqrt(dx * dx + dy * dy);
+        if (dist > 0.1f)
+        {
+            dx /= dist;
+            dy /= dist;
+            float moveDist = std::min(step, dist - (tauntRange - 5.0f));
+            moveX = bot->GetPositionX() + dx * moveDist;
+            moveY = bot->GetPositionY() + dy * moveDist;
+        }
+        MoveTo(bot->GetMapId(), moveX, moveY, moveZ, false, false, false, true, MovementPriority::MOVEMENT_COMBAT);
+        return nullptr;  // will be called again next tick
+    }
+
+    // In taunt range – try to taunt
+    bool taunted = false;
+    if (botAI->CastSpell("taunt", bestAdd))
+        taunted = true;
+    else
+    {
+        switch (bot->getClass())
+        {
+            case CLASS_PALADIN:
+                taunted = botAI->CastSpell("hand of reckoning", bestAdd);
+                break;
+            case CLASS_DEATH_KNIGHT:
+                taunted = botAI->CastSpell("dark command", bestAdd);
+                break;
+            case CLASS_DRUID:
+                taunted = botAI->CastSpell("growl", bestAdd);
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (!taunted)
+    {
+        // If taunt failed, move into melee range and start attacking
+        if (currentDist > 5.0f)
+        {
+            // Move closer
+            float dx = bestAdd->GetPositionX() - bot->GetPositionX();
+            float dy = bestAdd->GetPositionY() - bot->GetPositionY();
+            float dist = sqrt(dx * dx + dy * dy);
+            dx /= dist;
+            dy /= dist;
+            float step = std::min(3.0f, dist - 3.0f);
+            float moveX = bot->GetPositionX() + dx * step;
+            float moveY = bot->GetPositionY() + dy * step;
+            MoveTo(bot->GetMapId(), moveX, moveY, bot->GetPositionZ(), false, false, false, true,
+                   MovementPriority::MOVEMENT_COMBAT);
+            return nullptr;
+        }
+    }
+
+    return bestAdd;
+}
+
+bool IccAddsLadyDeathwhisperAction::HandleNonTankAddEvasion()
+{
+    const GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    // Check if any add is targeting this bot
+    bool targetedByAdd = false;
+    for (auto const& npcGuid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(npcGuid);
+        if (!unit || !unit->IsAlive() || unit->GetVictim() != bot)
+            continue;
+
+        if (IsAdd(unit))
+        {
+            targetedByAdd = true;
+            // Apply CC to this add
+            ApplyCCToAdd(unit);
+        }
+    }
+
+    if (!targetedByAdd)
         return false;
 
-    return HandleAddTargeting(boss);
+    // Find nearest alive tank in group
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+
+    Unit* nearestTank = nullptr;
+    float minDist = FLT_MAX;
+
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || !member->IsAlive() || member == bot)
+            continue;
+
+        if (!botAI->IsTank(member))
+            continue;
+
+        float dist = bot->GetExactDist2d(member);
+        if (dist < minDist)
+        {
+            minDist = dist;
+            nearestTank = member;
+        }
+    }
+
+    if (!nearestTank)
+        return false;
+
+    // Already close enough to the tank, stop moving
+    if (minDist <= 5.0f)
+        return false;
+
+    // Move toward the tank in increments
+    float dx = nearestTank->GetPositionX() - bot->GetPositionX();
+    float dy = nearestTank->GetPositionY() - bot->GetPositionY();
+    float dist = std::sqrt(dx * dx + dy * dy);
+
+    if (dist < 0.001f)
+        return false;
+
+    dx /= dist;
+    dy /= dist;
+
+    float step = std::min(5.0f, dist);
+    float moveX = bot->GetPositionX() + dx * step;
+    float moveY = bot->GetPositionY() + dy * step;
+
+    return MoveTo(bot->GetMapId(), moveX, moveY, bot->GetPositionZ(), false, false, false, false,
+                  MovementPriority::MOVEMENT_COMBAT);
+}
+
+bool IccAddsLadyDeathwhisperAction::ApplyNearbyAddCC()
+{
+    const GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    const float CC_RANGE = 10.0f;  // apply CC to adds within this range, even if not targeting us
+
+    for (auto const& npcGuid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(npcGuid);
+        if (!unit || !unit->IsAlive())
+            continue;
+        if (!IsAdd(unit))
+            continue;
+        if (bot->GetDistance(unit) <= CC_RANGE)
+            ApplyCCToAdd(unit);
+    }
+
+    return false;
+}
+
+bool IccAddsLadyDeathwhisperAction::ApplyCCToAdd(Unit* add)
+{
+    if (!add || !add->IsAlive())
+        return false;
+
+    // Avoid applying CC if the add is already CCed or dead
+    // The aura checks inside each case handle that.
+    switch (bot->getClass())
+    {
+        case CLASS_MAGE:
+            if (!botAI->HasAura("Frost Nova", add))
+                botAI->CastSpell("Frost Nova", add);
+            break;
+        case CLASS_DRUID:
+            if (!botAI->HasAura("Entangling Roots", add))
+                botAI->CastSpell("Entangling Roots", add);
+            break;
+        case CLASS_PALADIN:
+            if (!botAI->HasAura("Hammer of Justice", add))
+                botAI->CastSpell("Hammer of Justice", add);
+            break;
+        case CLASS_WARRIOR:
+            if (!botAI->HasAura("Hamstring", add))
+                botAI->CastSpell("Hamstring", add);
+            break;
+        case CLASS_HUNTER:
+            if (!botAI->HasAura("Concussive Shot", add))
+                botAI->CastSpell("Concussive Shot", add);
+            break;
+        case CLASS_ROGUE:
+            if (!botAI->HasAura("Kidney Shot", add))
+                botAI->CastSpell("Kidney Shot", add);
+            break;
+        case CLASS_SHAMAN:
+            if (!botAI->HasAura("Frost Shock", add))
+                botAI->CastSpell("Frost Shock", add);
+            break;
+        case CLASS_DEATH_KNIGHT:
+            if (!botAI->HasAura("Chains of Ice", add))
+                botAI->CastSpell("Chains of Ice", add);
+            break;
+        case CLASS_PRIEST:
+            if (!botAI->HasAura("Psychic Scream", add))
+                botAI->CastSpell("Psychic Scream", add);
+            break;
+        case CLASS_WARLOCK:
+            if (!botAI->HasAura("Fear", add))
+                botAI->CastSpell("Fear", add);
+            break;
+        default:
+            break;
+    }
+
+    return false;
+}
+
+bool IccAddsLadyDeathwhisperAction::IsAddsAlive()
+{
+    const GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    for (auto const& npcGuid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(npcGuid);
+        if (unit && unit->IsAlive() && IsAdd(unit))
+            return true;
+    }
+
+    return false;
+}
+
+bool IccAddsLadyDeathwhisperAction::EngageBoss()
+{
+    Unit* boss = AI_VALUE2(Unit*, "find target", "lady deathwhisper");
+    if (!boss || !boss->IsAlive())
+        return false;
+
+    // Determine if we are melee or ranged
+    bool isMelee = botAI->IsMelee(bot);
+    bool isRanged = botAI->IsRanged(bot) || botAI->IsHeal(bot);
+
+    // For melee: move into melee range of boss
+    if (isMelee)
+    {
+        float dist = bot->GetDistance(boss);
+        if (dist > 3.0f)
+        {
+            // Move toward boss in increments
+            float dx = boss->GetPositionX() - bot->GetPositionX();
+            float dy = boss->GetPositionY() - bot->GetPositionY();
+            float len = sqrt(dx * dx + dy * dy);
+            if (len > 0.1f)
+            {
+                dx /= len;
+                dy /= len;
+                float step = std::min(3.0f, len);
+                float moveX = bot->GetPositionX() + dx * step;
+                float moveY = bot->GetPositionY() + dy * step;
+                MoveTo(bot->GetMapId(), moveX, moveY, bot->GetPositionZ(), false, false, false, true,
+                       MovementPriority::MOVEMENT_COMBAT);
+                return false;
+            }
+        }
+        // Already in melee range or we moved enough
+        bot->SetTarget(boss->GetGUID());
+        bot->SetFacingToObject(boss);
+        Attack(boss);
+        return false;
+    }
+
+    if (isRanged)
+    {
+        // Use the ranged stack position defined for Lady Deathwhisper
+        const Position rangedPos = ICC_LDW_RANGED_POSITION;  // Assume this exists
+        float distToPos = bot->GetDistance2d(rangedPos.GetPositionX(), rangedPos.GetPositionY());
+        if (distToPos > 20.0f)
+        {
+            MoveTo(bot->GetMapId(), rangedPos.GetPositionX(), rangedPos.GetPositionY(), rangedPos.GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_COMBAT);
+            return false;
+        }
+        // At position, attack boss
+        bot->SetTarget(boss->GetGUID());
+        bot->SetFacingToObject(boss);
+        Attack(boss);
+        return false;
+    }
+
+    return false;
+}
+
+bool IccAddsLadyDeathwhisperAction::IsAdd(Unit* unit)
+{
+    if (!unit)
+        return false;
+    uint32 entry = unit->GetEntry();
+    return std::find(addEntriesLady.begin(), addEntriesLady.end(), entry) != addEntriesLady.end();
+}
+
+bool IccAddsLadyDeathwhisperAction::IsAssistTankAlive()
+{
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || !member->IsAlive() || member == bot)
+            continue;
+        if (botAI->IsTank(member) && !botAI->IsMainTank(member))
+            return true;
+    }
+
+    return false;
 }
 
 bool IccAddsLadyDeathwhisperAction::IsTargetedByShade(uint32 shadeEntry)
@@ -345,6 +751,7 @@ bool IccAddsLadyDeathwhisperAction::IsTargetedByShade(uint32 shadeEntry)
         if (unit && unit->GetEntry() == shadeEntry && unit->GetVictim() == bot)
             return true;
     }
+
     return false;
 }
 
@@ -406,16 +813,18 @@ bool IccAddsLadyDeathwhisperAction::UpdateRaidTargetIcon(Unit* target)
 {
     static constexpr uint8_t SKULL_ICON_INDEX = 7;
 
-    if (Group* group = bot->GetGroup())
-    {
-        const ObjectGuid currentSkull = group->GetTargetIcon(SKULL_ICON_INDEX);
-        Unit* currentSkullUnit = botAI->GetUnit(currentSkull);
+    if (!target || !target->IsAlive())
+        return false;
 
-        const bool needsUpdate = !currentSkullUnit || !currentSkullUnit->IsAlive() || currentSkullUnit != target;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
 
-        if (needsUpdate)
-            group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), target->GetGUID());
-    }
+    ObjectGuid currentSkull = group->GetTargetIcon(SKULL_ICON_INDEX);
+    Unit* currentSkullUnit = botAI->GetUnit(currentSkull);
+
+    if (!currentSkullUnit || !currentSkullUnit->IsAlive() || currentSkullUnit != target)
+        group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), target->GetGUID());
 
     return false;
 }
@@ -5408,7 +5817,6 @@ bool IccValithriaDreamCloudAction::Execute(Event /*event*/)
 
         allDream.push_back(player);
 
-        // FIX: check this specific player's own AI, not botAI (the executing bot)
         PlayerbotAI* playerBotAI = GET_PLAYERBOT_AI(player);
         if (!playerBotAI || playerBotAI->IsRealPlayer())
             realDream.push_back(player);

@@ -140,6 +140,7 @@ enum SpellIdsICC
 
     // Lady Deathwhisper
     SPELL_DARK_RECKONING                = 69483,
+    SPELL_TOUCH_OF_INSIGNIFICANCE       = 71204,
 
     // Gunship Battle
     SPELL_DEATH_PLAGUE                  = 72865,

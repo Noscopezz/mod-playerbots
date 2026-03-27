@@ -22,6 +22,7 @@
 const Position ICC_LM_TANK_POSITION = Position(-391.0f, 2259.0f, 42.0f);
 const Position ICC_DARK_RECKONING_SAFE_POSITION = Position(-523.33386f, 2211.2031f, 62.823116f);
 const Position ICC_LDW_TANK_POSTION = Position(-570.1f, 2211.2456f, 49.476616f); //-590.0f
+const Position ICC_LDW_RANGED_POSITION = Position(-607.0631f, 2212.2488f, 49.47009f);
 const Position ICC_ROTTING_FROST_GIANT_TANK_POSITION = Position(-328.5085f, 2225.5142f, 199.97298f);
 const Position ICC_GUNSHIP_TELEPORT_ALLY = Position (-370.04645f, 1993.3536f, 466.65656f);
 const Position ICC_GUNSHIP_TELEPORT_ALLY2 = Position (-392.66208f, 2064.893f, 466.5672f, 5.058196f);
@@ -137,6 +138,14 @@ public:
     bool MoveTowardPosition(const Position& position, float incrementSize);
     bool HandleAddTargeting(Unit* boss);
     bool UpdateRaidTargetIcon(Unit* target);
+    bool HandleNonTankAddEvasion();
+    bool IsAdd(Unit* unit);
+    bool IsAssistTankAlive();
+    bool ApplyNearbyAddCC();
+    bool ApplyCCToAdd(Unit* add);
+    bool IsAddsAlive();
+    bool EngageBoss();
+    Unit* FindAndCollectAdd();
 
 };
 
