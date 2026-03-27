@@ -24,6 +24,8 @@
 #include "Map.h"
 #include "Corpse.h"
 #include "CellImpl.h"
+#include "PlayerbotAIConfig.h"
+#include "RaceMgr.h"
 
 // Navigation data
 
