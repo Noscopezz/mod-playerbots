@@ -7267,7 +7267,11 @@ bool IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
         if (!IsValidCollectibleAdd(add))
             continue;
 
-        float const addDist = bot->GetDistance(add);
+        if (!bot)
+            return false;
+
+        float addDist = 0.0f;
+        addDist = bot->GetDistance(add);
         float const maxEngage = hasAliveAssistTank ? ENGAGE_RADIUS : 25.0f;
 
         if (addDist <= TAUNT_RADIUS)
@@ -7312,6 +7316,7 @@ bool IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
         Unit* cur = bot->GetVictim();
         if (cur && !IsValidCollectibleAdd(cur))
             bot->SetTarget(ObjectGuid::Empty);
+
         return false;
     }
 
