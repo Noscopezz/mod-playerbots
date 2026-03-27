@@ -104,7 +104,7 @@ public:
 
     bool HandleSpikeTargeting(Unit* boss);
     bool MoveTowardPosition(const Position& position, float incrementSize);
-    void UpdateRaidTargetIcon(Unit* target);
+    bool UpdateRaidTargetIcon(Unit* target);
 };
 
 //Lady Deathwhisper
@@ -136,7 +136,7 @@ public:
     bool IsTargetedByShade(uint32 shadeEntry);
     bool MoveTowardPosition(const Position& position, float incrementSize);
     bool HandleAddTargeting(Unit* boss);
-    void UpdateRaidTargetIcon(Unit* target);
+    bool UpdateRaidTargetIcon(Unit* target);
 
 };
 
@@ -199,8 +199,8 @@ private:
 
     GunshipSide DetectShip() const;
     bool TeleportTo(Position const& position);
-    void CleanupSkullIcon(uint8 skullIconIndex);
-    void UpdateBossSkullIcon(Unit* boss, uint8 skullIconIndex);
+    bool CleanupSkullIcon(uint8 skullIconIndex);
+    bool UpdateBossSkullIcon(Unit* boss, uint8 skullIconIndex);
 };
 
 //DBS
@@ -224,7 +224,7 @@ public:
     bool Execute(Event event) override;
 
     Unit* FindPriorityTarget(Unit* boss);
-    void UpdateSkullMarker(Unit* priorityTarget);
+    bool UpdateSkullMarker(Unit* priorityTarget);
 };
 
 //FESTERGUT
@@ -267,7 +267,7 @@ public:
         : AttackAction(botAI, name) {}
     bool Execute(Event event) override;
 
-    void MarkBossWithSkull(Unit* boss);
+    bool MarkBossWithSkull(Unit* boss);
     bool PositionMainTankAndMelee(Unit* boss, Unit* smallOoze = nullptr);
     bool HandleAssistTankPositioning(Unit* boss);
     Unit* FindAssignedBigOoze(Unit* boss, std::vector<Unit*>& bigOozes);
@@ -321,7 +321,7 @@ public:
         : AttackAction(botAI, name) {}
     bool Execute(Event event) override;
 
-    void MarkOozeWithSkull(Unit* ooze);
+    bool MarkOozeWithSkull(Unit* ooze);
     Unit* FindAuraTarget();
 };
 
@@ -373,7 +373,7 @@ public:
         : AttackAction(botAI, "icc bpc main tank") {}
     bool Execute(Event event) override;
 
-    void MarkEmpoweredPrince();
+    bool MarkEmpoweredPrince();
 };
 
 class IccBpcEmpoweredVortexAction : public MovementAction
@@ -441,7 +441,7 @@ public:
         : MovementAction(botAI, "icc bql pact of darkfallen") {}
     bool Execute(Event event) override;
 
-    void CalculateCenterPosition(Position& targetPos, const std::vector<Player*>& playersWithAura);
+    bool CalculateCenterPosition(Position& targetPos, const std::vector<Player*>& playersWithAura);
     bool MoveToTargetPosition(const Position& targetPos, int auraCount);
 };
 
@@ -490,7 +490,7 @@ public:
     bool Handle10ManGroupLogic();
  
 private:
-    void ApplyCrowdControl(Unit* zombie);
+    bool ApplyCrowdControl(Unit* zombie);
 };
  
 class IccValithriaPortalAction : public MovementAction
@@ -542,7 +542,7 @@ public:
             : MovementAction(botAI, "icc sindragosa frost beacon") {}
     bool Execute(Event event) override;
 
-    void HandleSupportActions();
+    bool HandleSupportActions();
     bool HandleBeaconedPlayer(const Unit* boss);
     bool HandleNonBeaconedPlayer(const Unit* boss);
     bool MoveToPositionIfNeeded(const Position& position, float tolerance);
@@ -646,18 +646,18 @@ public:
 
     bool IsPositionSafeFromDefile(float x, float y, float z, float minSafeDistance) const;
     bool IsValidCollectibleAdd(Unit* unit) const;
-    void HandleTankPositioning();
-    void HandleMeleePositioning();
-    void HandleRangedPositioning();
-    void HandleMainTankAddManagement(Unit* boss, Position const* tankPos);
-    void HandleAssistTankAddManagement(Unit* boss, Position const* tankPos);
-    void HandlePetManagement();
+    bool HandleTankPositioning();
+    bool HandleMeleePositioning();
+    bool HandleRangedPositioning();
+    bool HandleMainTankAddManagement(Unit* boss, Position const* tankPos);
+    bool HandleAssistTankAddManagement(Unit* boss, Position const* tankPos);
+    bool HandlePetManagement();
 
 private:
     static constexpr float PLATFORM_Z      = 840.857f;
     static constexpr float BEHIND_DISTANCE = 4.0f;
-    void FixPlatformPosition();
-    void ClearInvalidTarget();
+    bool FixPlatformPosition();
+    bool ClearInvalidTarget();
     Position const* GetMainTankPosition();
     Position const* GetMainTankRangedPosition();
     bool TryMoveToPosition(float x, float y, float z, bool forced = true);
@@ -670,23 +670,23 @@ public:
         : AttackAction(botAI, "icc lich king adds") {}
     bool Execute(Event event) override;
 
-    void HandleTeleportationFixes(Difficulty diff, Unit* terenas);
+    bool HandleTeleportationFixes(Difficulty diff, Unit* terenas);
     bool HandleSpiritBombAvoidance(Difficulty diff, Unit* terenas);
-    void HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas);
-    void HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas);
+    bool HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas);
+    bool HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas);
     bool HandleQuakeMechanics(Unit* boss);
-    void HandleShamblingHorrors(Unit* boss, bool hasPlague);
-    void HandleAssistTankAddManagement(Unit* boss, Difficulty diff);
-    void HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff);
-    void HandleMainTankTargeting(Unit* boss, Difficulty diff);
-    void HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague);
-    void HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff);
-    void HandleDefileMechanics(Unit* boss, Difficulty diff);
-    void HandleValkyrMechanics(Difficulty diff);
-    void HandleValkyrMarking(std::vector<Unit*> const& valkyrs, Difficulty diff);
-    void HandleValkyrAssignment(std::vector<Unit*> const& valkyrs);
-    void HandleVileSpiritMechanics();
-    void ApplyCCToValkyr(Unit* valkyr);
+    bool HandleShamblingHorrors(Unit* boss, bool hasPlague);
+    bool HandleAssistTankAddManagement(Unit* boss, Difficulty diff);
+    bool HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff);
+    bool HandleMainTankTargeting(Unit* boss, Difficulty diff);
+    bool HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague);
+    bool HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff);
+    bool HandleDefileMechanics(Unit* boss, Difficulty diff);
+    bool HandleValkyrMechanics(Difficulty diff);
+    bool HandleValkyrMarking(std::vector<Unit*> const& valkyrs, Difficulty diff);
+    bool HandleValkyrAssignment(std::vector<Unit*> const& valkyrs);
+    bool HandleVileSpiritMechanics();
+    bool ApplyCCToValkyr(Unit* valkyr);
     bool IsValkyr(Unit* unit);
     std::vector<size_t> CalculateBalancedGroupSizes(size_t totalAssist, size_t numValkyrs);
     size_t GetAssignedValkyrIndex(size_t assistIndex, std::vector<size_t> const& groupSizes);

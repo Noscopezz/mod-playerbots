@@ -163,7 +163,7 @@ bool IccSpikeAction::MoveTowardPosition(const Position& position, float incremen
                   MovementPriority::MOVEMENT_COMBAT);
 }
 
-void IccSpikeAction::UpdateRaidTargetIcon(Unit* target)
+bool IccSpikeAction::UpdateRaidTargetIcon(Unit* target)
 {
     static constexpr uint8_t SKULL_ICON_INDEX = 7;
 
@@ -177,6 +177,8 @@ void IccSpikeAction::UpdateRaidTargetIcon(Unit* target)
         if (needsUpdate)
             group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), target->GetGUID());
     }
+
+    return false;
 }
 
 // Lady Deathwhisper
@@ -400,7 +402,7 @@ bool IccAddsLadyDeathwhisperAction::HandleAddTargeting(Unit* boss)
     return false;
 }
 
-void IccAddsLadyDeathwhisperAction::UpdateRaidTargetIcon(Unit* target)
+bool IccAddsLadyDeathwhisperAction::UpdateRaidTargetIcon(Unit* target)
 {
     static constexpr uint8_t SKULL_ICON_INDEX = 7;
 
@@ -414,6 +416,8 @@ void IccAddsLadyDeathwhisperAction::UpdateRaidTargetIcon(Unit* target)
         if (needsUpdate)
             group->SetTargetIcon(SKULL_ICON_INDEX, bot->GetGUID(), target->GetGUID());
     }
+
+    return false;
 }
 
 bool IccShadeLadyDeathwhisperAction::Execute(Event /*event*/)
@@ -834,15 +838,6 @@ bool IccGunshipEnterCannonAction::EnterVehicle(Unit* vehicleBase, bool moveIfFar
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// IccGunshipTeleportAction
-//
-// Single action that works for both the Alliance and Horde ships.  The ship
-// we are currently on is determined by which cannon type is friendly — this
-// makes the action cross-faction safe: a Horde player in an Alliance raid
-// will see NPC_CANNONA as friendly and follow Alliance-side logic.
-// ---------------------------------------------------------------------------
-
 IccGunshipTeleportAction::GunshipSide IccGunshipTeleportAction::DetectShip() const
 {
     Unit* cannonA = bot->FindNearestCreature(NPC_CANNONA, 100.0f);
@@ -897,29 +892,33 @@ bool IccGunshipTeleportAction::TeleportTo(Position const& position)
                            bot->GetOrientation());
 }
 
-void IccGunshipTeleportAction::CleanupSkullIcon(uint8 skullIconIndex)
+bool IccGunshipTeleportAction::CleanupSkullIcon(uint8 skullIconIndex)
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     ObjectGuid const currentSkullTarget = group->GetTargetIcon(skullIconIndex);
     if (currentSkullTarget.IsEmpty())
-        return;
+        return false;
 
     Unit* skullTarget = ObjectAccessor::GetUnit(*bot, currentSkullTarget);
     if (!skullTarget || !skullTarget->IsAlive())
         group->SetTargetIcon(skullIconIndex, bot->GetGUID(), ObjectGuid::Empty);
+
+    return false;
 }
 
-void IccGunshipTeleportAction::UpdateBossSkullIcon(Unit* boss, uint8 skullIconIndex)
+bool IccGunshipTeleportAction::UpdateBossSkullIcon(Unit* boss, uint8 skullIconIndex)
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     if (group->GetTargetIcon(skullIconIndex) != boss->GetGUID())
         group->SetTargetIcon(skullIconIndex, bot->GetGUID(), boss->GetGUID());
+
+    return false;
 }
 
 //DBS
@@ -1172,14 +1171,14 @@ Unit* IccAddsDbsAction::FindPriorityTarget(Unit* boss)
     return boss->IsAlive() ? const_cast<Unit*>(boss) : nullptr;
 }
 
-void IccAddsDbsAction::UpdateSkullMarker(Unit* priorityTarget)
+bool IccAddsDbsAction::UpdateSkullMarker(Unit* priorityTarget)
 {
     if (!priorityTarget)
-        return;
+        return false;
 
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     constexpr uint8_t skullIconId = 7;
 
@@ -1193,6 +1192,8 @@ void IccAddsDbsAction::UpdateSkullMarker(Unit* priorityTarget)
     // Update if needed
     if (needsUpdate)
         group->SetTargetIcon(skullIconId, bot->GetGUID(), priorityTarget->GetGUID());
+
+    return false;
 }
 
 // Festergut
@@ -1513,16 +1514,18 @@ bool IccRotfaceTankPositionAction::Execute(Event /*event*/)
     return false;
 }
 
-void IccRotfaceTankPositionAction::MarkBossWithSkull(Unit* boss)
+bool IccRotfaceTankPositionAction::MarkBossWithSkull(Unit* boss)
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     constexpr uint8_t skullIconId = 7;
     ObjectGuid skullGuid = group->GetTargetIcon(skullIconId);
     if (skullGuid != boss->GetGUID())
         group->SetTargetIcon(skullIconId, bot->GetGUID(), boss->GetGUID());
+
+    return false;
 }
 
 bool IccRotfaceTankPositionAction::PositionMainTankAndMelee(Unit* boss, Unit* smallOoze)
@@ -2370,11 +2373,11 @@ bool IccPutricideVolatileOozeAction::Execute(Event /*event*/)
     return false;
 }
 
-void IccPutricideVolatileOozeAction::MarkOozeWithSkull(Unit* ooze)
+bool IccPutricideVolatileOozeAction::MarkOozeWithSkull(Unit* ooze)
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     constexpr uint8_t skullIconId = 7;
     ObjectGuid skullGuid = group->GetTargetIcon(skullIconId);
@@ -2387,6 +2390,8 @@ void IccPutricideVolatileOozeAction::MarkOozeWithSkull(Unit* ooze)
     // Mark alive ooze if needed
     if (ooze && ooze->IsAlive() && (!skullGuid || !markedUnit))
         group->SetTargetIcon(skullIconId, bot->GetGUID(), ooze->GetGUID());
+
+    return false;
 }
 
 Unit* IccPutricideVolatileOozeAction::FindAuraTarget()
@@ -3110,8 +3115,6 @@ bool IccBpcKelesethTankAction::Execute(Event /*event*/)
     if (!boss)
         return false;
 
-    // ---- New configurable movement/teleport logic relative to ICC_BPC_CENTER_POSITION ----
-    // These are local adjustable parameters (edit values as needed)
     static float CENTER_MOVE_THRESHOLD = 40.0f;  // distance threshold (yards) to trigger movement toward center
     static float MOVE_INCREMENT = 5.0f;          // movement increment (yards)
     static float Z_TELEPORT_THRESHOLD = 6.0f;    // Z-axis tolerance (yards) to trigger teleport fix
@@ -3152,7 +3155,7 @@ bool IccBpcKelesethTankAction::Execute(Event /*event*/)
             return false;
         }
     }
-    // ---- End of new center / Z-fix logic ----
+
     if (!botAI->IsAssistTank(bot))
         return false;
 
@@ -3295,7 +3298,7 @@ bool IccBpcMainTankAction::Execute(Event /*event*/)
     return false;
 }
 
-void IccBpcMainTankAction::MarkEmpoweredPrince()
+bool IccBpcMainTankAction::MarkEmpoweredPrince()
 {
     static constexpr uint8_t SKULL_RAID_ICON = 7;
 
@@ -3342,6 +3345,8 @@ void IccBpcMainTankAction::MarkEmpoweredPrince()
             }
         }
     }
+
+    return false;
 }
 
 bool IccBpcEmpoweredVortexAction::Execute(Event /*event*/)
@@ -4242,7 +4247,6 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
                ICC_BQL_CENTER_POSITION.GetPositionZ(), false, false, false, true,
                MovementPriority::MOVEMENT_COMBAT, true, false);
 
-    // --- Ranged bots wall assignment logic ---
     if (isRanged)
     {
         // Gather all ranged and healers, sort by GUID for deterministic assignment
@@ -4578,8 +4582,7 @@ bool IccBqlPactOfDarkfallenAction::Execute(Event /*event*/)
     return MoveToTargetPosition(targetPos, playersWithAura.size() + 1);  // +1 to include the bot itself
 }
 
-void IccBqlPactOfDarkfallenAction::CalculateCenterPosition(Position& targetPos,
-                                                           const std::vector<Player*>& playersWithAura)
+bool IccBqlPactOfDarkfallenAction::CalculateCenterPosition(Position& targetPos, const std::vector<Player*>& playersWithAura)
 {
     float sumX = bot->GetPositionX();
     float sumY = bot->GetPositionY();
@@ -4596,6 +4599,8 @@ void IccBqlPactOfDarkfallenAction::CalculateCenterPosition(Position& targetPos,
     // Calculate average position (center)
     int totalPlayers = playersWithAura.size() + 1;  // +1 for the bot itself
     targetPos.Relocate(sumX / totalPlayers, sumY / totalPlayers, sumZ / totalPlayers);
+
+    return false;
 }
 
 bool IccBqlPactOfDarkfallenAction::MoveToTargetPosition(const Position& targetPos, int auraCount)
@@ -4950,7 +4955,7 @@ bool IccValithriaGroupAction::Execute(Event /*event*/)
     return Handle10ManGroupLogic();
 }
 
-void IccValithriaGroupAction::ApplyCrowdControl(Unit* zombie)
+bool IccValithriaGroupAction::ApplyCrowdControl(Unit* zombie)
 {
     switch (bot->getClass())
     {
@@ -4989,6 +4994,8 @@ void IccValithriaGroupAction::ApplyCrowdControl(Unit* zombie)
         default:
             break;
     }
+
+    return false;
 }
 
 bool IccValithriaGroupAction::MoveTowardsPosition(Position const& pos, float increment)
@@ -5779,7 +5786,7 @@ bool IccSindragosaFrostBeaconAction::Execute(Event /*event*/)
     return HandleNonBeaconedPlayer(boss);
 }
 
-void IccSindragosaFrostBeaconAction::HandleSupportActions()
+bool IccSindragosaFrostBeaconAction::HandleSupportActions()
 {
     Group* group = bot->GetGroup();
 
@@ -5837,6 +5844,8 @@ void IccSindragosaFrostBeaconAction::HandleSupportActions()
             }
         }
     }
+
+    return false;
 }
 
 bool IccSindragosaFrostBeaconAction::HandleBeaconedPlayer(const Unit* boss)
@@ -6719,17 +6728,19 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
     return false;
 }
 
-void IccLichKingWinterAction::FixPlatformPosition()
+bool IccLichKingWinterAction::FixPlatformPosition()
 {
     if (std::abs(bot->GetPositionZ() - PLATFORM_Z) > 1.0f)
         bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), PLATFORM_Z, bot->GetOrientation());
+
+    return false;
 }
 
-void IccLichKingWinterAction::ClearInvalidTarget()
+bool IccLichKingWinterAction::ClearInvalidTarget()
 {
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
     if (!currentTarget)
-        return;
+        return false;
 
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     bool doClear = false;
@@ -6748,6 +6759,8 @@ void IccLichKingWinterAction::ClearInvalidTarget()
         bot->AttackStop();
         bot->SetTarget(ObjectGuid::Empty);
     }
+
+    return false;
 }
 
 Position const* IccLichKingWinterAction::GetMainTankPosition()
@@ -6908,11 +6921,11 @@ static bool HasFrontalAbility(uint32 entry)
            entry == NPC_RAGING_SPIRIT3 || entry == NPC_RAGING_SPIRIT4;
 }
 
-void IccLichKingWinterAction::HandleTankPositioning()
+bool IccLichKingWinterAction::HandleTankPositioning()
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (!boss)
-        return;
+        return false;
 
     // Both tanks converge on the same frost position chosen by GetMainTankPosition().
     // The frost position is one of ICC_LK_FROST1/2/3 (the closest to the main-tank
@@ -6928,7 +6941,7 @@ void IccLichKingWinterAction::HandleTankPositioning()
         if (dist > FROST_AT_POS_TOLERANCE)
         {
             TryMoveToPosition(frostPos.GetPositionX(), frostPos.GetPositionY(), PLATFORM_Z, true);
-            return;
+            return false;
         }
 
         // Step 2 – at position: engage nearby adds; never leave.
@@ -6939,9 +6952,11 @@ void IccLichKingWinterAction::HandleTankPositioning()
         // Step 1 is handled inside HandleAssistTankAddManagement.
         HandleAssistTankAddManagement(boss, &frostPos);
     }
+
+    return false;
 }
 
-void IccLichKingWinterAction::HandleMeleePositioning()
+bool IccLichKingWinterAction::HandleMeleePositioning()
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
 
@@ -6959,9 +6974,9 @@ void IccLichKingWinterAction::HandleMeleePositioning()
     // Step 2 – position behind the current melee target.
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
     if (!currentTarget || !currentTarget->IsAlive())
-        return;
+        return false;
     if (!IsValidCollectibleAdd(currentTarget) || IsIceSphere(currentTarget->GetEntry()))
-        return;
+        return false;
 
     // PRIMARY: mainTank→add vector gives us the reliable "facing" direction of
     // the add, since it should have aggro on the main tank at the frost position.
@@ -6996,7 +7011,7 @@ void IccLichKingWinterAction::HandleMeleePositioning()
                 float const dist = std::hypot(dx, dy);
 
                 if (dist < 1.0f)
-                    return;  // already in position
+                    return false;  // already in position
 
                 if (!IsPositionSafeFromDefile(destX, destY, bot->GetPositionZ(), 2.0f))
                     continue;
@@ -7006,7 +7021,7 @@ void IccLichKingWinterAction::HandleMeleePositioning()
                 float const step = std::min(2.0f, dist);
                 TryMoveToPosition(bot->GetPositionX() + (dx / dist) * step, bot->GetPositionY() + (dy / dist) * step,
                                   bot->GetPositionZ(), false);
-                return;
+                return false;
             }
         }
     }
@@ -7032,7 +7047,7 @@ void IccLichKingWinterAction::HandleMeleePositioning()
         float const dist = std::hypot(dx, dy);
 
         if (dist < 1.0f)
-            return;
+            return false;
         if (!IsPositionSafeFromDefile(destX, destY, bot->GetPositionZ(), 2.0f))
             continue;
         if (!bot->IsWithinLOS(destX, destY, bot->GetPositionZ()))
@@ -7041,11 +7056,13 @@ void IccLichKingWinterAction::HandleMeleePositioning()
         float const step = std::min(2.0f, dist);
         TryMoveToPosition(bot->GetPositionX() + (dx / dist) * step, bot->GetPositionY() + (dy / dist) * step,
                           bot->GetPositionZ(), false);
-        return;
+        return false;
     }
+
+    return false;
 }
 
-void IccLichKingWinterAction::HandleRangedPositioning()
+bool IccLichKingWinterAction::HandleRangedPositioning()
 {
     Position const& targetPos = *GetMainTankRangedPosition();
 
@@ -7053,7 +7070,7 @@ void IccLichKingWinterAction::HandleRangedPositioning()
     if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
     {
         TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, true);
-        return;
+        return false;
     }
 
     // Move to ranged frost position if not already there.
@@ -7061,11 +7078,11 @@ void IccLichKingWinterAction::HandleRangedPositioning()
         TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, false);
 
     if (!botAI->IsRangedDps(bot))
-        return;
+        return false;
 
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     // Determine sphere slot count by difficulty.
     Difficulty const diff = bot->GetRaidDifficulty();
@@ -7120,7 +7137,7 @@ void IccLichKingWinterAction::HandleRangedPositioning()
             bot->AttackStop();
             bot->SetTarget(ObjectGuid::Empty);
         }
-        return;
+        return false;
     }
 
     // Sphere assignee: target the lowest-HP sphere (most urgent to kill).
@@ -7131,7 +7148,7 @@ void IccLichKingWinterAction::HandleRangedPositioning()
     {
         bot->SetFacingToObject(cur);
         Attack(cur);
-        return;
+        return false;
     }
 
     // Scan for the most urgent sphere.
@@ -7159,16 +7176,69 @@ void IccLichKingWinterAction::HandleRangedPositioning()
         bot->SetFacingToObject(bestSphere);
         Attack(bestSphere);
     }
+
+    return false;
 }
 
-void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position const* frostPos)
+static bool CastSingleTargetTaunt(PlayerbotAI* botAI, Player* bot, Unit* target)
 {
-    // Main tank is already at the frost position.
-    // It only attacks adds that are CLOSE (delivered by the assist tank or spawning
-    // nearby). It never leaves the position to chase far adds.
-    static constexpr float ENGAGE_RADIUS = 12.0f;
+    if (!target || !target->IsAlive())
+        return false;
 
-    // Does an alive assist tank exist?
+    if (botAI->CastSpell("taunt", target))
+        return true;
+
+    switch (bot->getClass())
+    {
+        case CLASS_PALADIN:
+            if (botAI->CastSpell("hand of reckoning", target))
+                return true;
+            break;
+        case CLASS_DEATH_KNIGHT:
+            if (botAI->CastSpell("dark command", target))
+                return true;
+            break;
+        case CLASS_DRUID:
+            if (botAI->CastSpell("growl", target))
+                return true;
+            break;
+        default:
+            break;
+    }
+
+    // Ranged poke – generates threat without moving
+    if (botAI->CastSpell("shoot", target) || botAI->CastSpell("throw", target))
+        return true;
+
+    return false;
+}
+
+// Returns true if a spell was cast.
+static bool CastAoeTaunt(PlayerbotAI* botAI, Player* bot)
+{
+    switch (bot->getClass())
+    {
+        case CLASS_WARRIOR:
+            if (botAI->CastSpell("challenging shout", bot))
+                return true;
+            break;
+        case CLASS_DRUID:
+            if (botAI->CastSpell("challenging roar", bot))
+                return true;
+            break;
+        default:
+            break;
+    }
+    return false;
+}
+
+// HandleMainTankAddManagement
+bool IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position const* frostPos)
+{
+    static constexpr float ENGAGE_RADIUS = 12.0f;  // engage adds within this range
+    static constexpr float TAUNT_RADIUS = 30.0f;   // taunt range (all taunts ≥ 25 yd)
+    static constexpr int AOE_TAUNT_MIN = 2;        // fire AoE taunt when ≥ this many adds nearby
+
     bool hasAliveAssistTank = false;
     if (Group* group = bot->GetGroup())
     {
@@ -7185,10 +7255,11 @@ void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
 
     GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
 
-    // Bucket adds at this position into priority tiers.
-    Unit* priorityAdd = nullptr;   // attacking a non-tank player
-    Unit* secondaryAdd = nullptr;  // not yet attacking us
-    Unit* fallbackAdd = nullptr;   // already on us
+    // Bucket adds visible from the frost position
+    Unit* priorityAdd = nullptr;   // attacking non-tank
+    Unit* secondaryAdd = nullptr;  // not yet on MT
+    Unit* fallbackAdd = nullptr;   // already on MT
+    int nearbyCount = 0;           // for AoE taunt threshold
 
     for (ObjectGuid const& guid : targets)
     {
@@ -7197,14 +7268,25 @@ void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
             continue;
 
         float const addDist = bot->GetDistance(add);
+        float const maxEngage = hasAliveAssistTank ? ENGAGE_RADIUS : 25.0f;
 
-        // When an assist tank is alive: ignore adds that haven't been herded here yet.
-        // When no assist tank: allow a longer reach so the main tank can pick up strays.
-        float const maxEngageDist = hasAliveAssistTank ? ENGAGE_RADIUS : 25.0f;
-        if (addDist > maxEngageDist)
-            continue;
+        if (addDist <= TAUNT_RADIUS)
+            ++nearbyCount;
 
         Unit* victim = add->GetVictim();
+
+        // Taunt pass: all adds in taunt range that are NOT already on MT
+        bool onMT = victim && victim->IsPlayer() && botAI->IsMainTank(victim->ToPlayer());
+        if (!onMT && addDist <= TAUNT_RADIUS)
+            CastSingleTargetTaunt(botAI, bot, add);
+
+        // AoE taunt
+        if (nearbyCount >= AOE_TAUNT_MIN)
+            CastAoeTaunt(botAI, bot);
+
+        // Engagement bucketing 
+        if (addDist > maxEngage)
+            continue;
 
         if (victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer()))
         {
@@ -7230,24 +7312,24 @@ void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
         Unit* cur = bot->GetVictim();
         if (cur && !IsValidCollectibleAdd(cur))
             bot->SetTarget(ObjectGuid::Empty);
-        return;
+        return false;
     }
 
-    float const addDist = bot->GetDistance(targetAdd);
+    float addDist = 0.0f;
+    if (bot)
+        addDist = bot->GetDistance(targetAdd);
 
     if (addDist <= ENGAGE_RADIUS || !hasAliveAssistTank)
     {
-        // Attack (or pull toward position when solo-tanking).
+        // Pull toward frostPos if solo-tanking and add is far
         if (addDist > ENGAGE_RADIUS && !hasAliveAssistTank)
         {
-            // Gently step toward the add but only halfway, pulling it back here.
             float const dx = targetAdd->GetPositionX() - frostPos->GetPositionX();
             float const dy = targetAdd->GetPositionY() - frostPos->GetPositionY();
             float const len = std::hypot(dx, dy);
             float const pullRatio = std::min(1.0f, 15.0f / (len > 0.1f ? len : 0.1f));
-            float const midX = frostPos->GetPositionX() + dx * pullRatio;
-            float const midY = frostPos->GetPositionY() + dy * pullRatio;
-            TryMoveToPosition(midX, midY, PLATFORM_Z, false);
+            TryMoveToPosition(frostPos->GetPositionX() + dx * pullRatio, frostPos->GetPositionY() + dy * pullRatio,
+                              PLATFORM_Z, false);
         }
 
         bot->SetTarget(targetAdd->GetGUID());
@@ -7256,22 +7338,29 @@ void IccLichKingWinterAction::HandleMainTankAddManagement(Unit* boss, Position c
     }
     else
     {
-        // Has assist tank and add is still far: face the add, generate threat via
-        // ranged abilities while it is herded here.
+        // Add is still being herded by assist tank – face it and generate threat
         bot->SetTarget(targetAdd->GetGUID());
         bot->SetFacingToObject(targetAdd);
         Attack(targetAdd);
     }
+
+    return false;
 }
 
-void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position const* frostPos)
+// HandleAssistTankAddManagement 
+bool IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position const* frostPos)
 {
-    float const distToFrost = bot->GetDistance2d(frostPos->GetPositionX(), frostPos->GetPositionY());
-    static constexpr float FROST_AT_POS_TOLERANCE = 3.0f;
+    static constexpr float FROST_TOL = 3.0f;      // "at frost position" tolerance
+    static constexpr float MELE_RANGE = 5.0f;    // engage in melee
+    static constexpr float TAUNT_RADIUS = 30.0f;  // single-target taunt range
+
     GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
 
-    std::vector<Unit*> addsOnUs;   // adds currently attacking the assist tank
-    std::vector<Unit*> addsLoose;  // adds not controlled by any tank
+    // Identify the current main tank so we never steal its adds
+    Unit* mainTank = AI_VALUE(Unit*, "main tank");
+
+    std::vector<Unit*> addsOnUs;   // adds attacking the assist tank
+    std::vector<Unit*> addsLoose;  // adds not controlled by main tank
 
     for (ObjectGuid const& guid : targets)
     {
@@ -7281,27 +7370,36 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
 
         Unit* victim = add->GetVictim();
 
+        // Skip adds already securely held by the main tank
+        bool onMainTank = mainTank && victim && victim->GetGUID() == mainTank->GetGUID();
+        if (onMainTank)
+            continue;
+
         if (victim == bot)
-        {
             addsOnUs.push_back(add);
-        }
-        else if (!victim || (victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer())))
-        {
+        else
             addsLoose.push_back(add);
-        }
-        // Adds already on the main tank: skip.
     }
 
-    // ── PHASE 3: herding ─────────────────────────────────────────────────────
+    // Phase 3 – herding: adds are on us, walk back to frost position
     if (!addsOnUs.empty())
     {
-        // Move back to frost position so the main tank can pick up these adds.
-        if (distToFrost > FROST_AT_POS_TOLERANCE)
+        // Taunt all adds that are following us to maintain aggro during the walk
+        for (Unit* add : addsOnUs)
+            CastSingleTargetTaunt(botAI, bot, add);
+
+        // AoE taunt if ≥2 adds in tow
+        if (addsOnUs.size() >= 2)
+            CastAoeTaunt(botAI, bot);
+
+        float const distToFrost = bot->GetExactDist2d(frostPos->GetPositionX(), frostPos->GetPositionY());
+
+        if (distToFrost > FROST_TOL)
         {
             TryMoveToPosition(frostPos->GetPositionX(), frostPos->GetPositionY(), PLATFORM_Z, false);
         }
 
-        // Keep attacking to maintain aggro during the herd.
+        // Maintain combat target on the way back
         Unit* currentTarget = bot->GetVictim();
         bool keepCurrent = false;
         if (currentTarget && currentTarget->IsAlive())
@@ -7315,8 +7413,21 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
                 }
             }
         }
+
         if (!keepCurrent)
-            currentTarget = addsOnUs.front();
+        {
+            currentTarget = nullptr;
+            for (Unit* add : addsOnUs)
+            {
+                if (IsLkShambling(add->GetEntry()))
+                {
+                    currentTarget = add;
+                    break;
+                }
+            }
+            if (!currentTarget)
+                currentTarget = addsOnUs.front();
+        }
 
         if (currentTarget)
         {
@@ -7324,25 +7435,27 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
             bot->SetFacingToObject(currentTarget);
             Attack(currentTarget);
         }
-        return;
+        return false;
     }
 
-    // ── PHASE 1: get to frost position ───────────────────────────────────────
-    if (distToFrost > FROST_AT_POS_TOLERANCE)
+    // Phase 1 – return to frost position if we drifted 
+    float const distToFrost = bot->GetExactDist2d(frostPos->GetPositionX(), frostPos->GetPositionY());
+
+    if (distToFrost > FROST_TOL)
     {
         TryMoveToPosition(frostPos->GetPositionX(), frostPos->GetPositionY(), PLATFORM_Z, false);
 
         Unit* cur = bot->GetVictim();
         if (cur && !IsValidCollectibleAdd(cur))
             bot->SetTarget(ObjectGuid::Empty);
-        return;
+        return false;
     }
 
-    // ── PHASE 2: at position, go collect the nearest loose add ───────────────
+    // Phase 2 – at frost position, collect the nearest loose add 
     Unit* targetAdd = nullptr;
     float closestDist = FLT_MAX;
 
-    // Priority 1: add attacking a non-tank (rescue).
+    // Priority 1: rescue add attacking a non-tank
     for (Unit* add : addsLoose)
     {
         Unit* victim = add->GetVictim();
@@ -7356,7 +7469,8 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
             }
         }
     }
-    // Priority 2: any loose add.
+
+    // Priority 2: any loose add
     if (!targetAdd)
     {
         for (Unit* add : addsLoose)
@@ -7370,41 +7484,68 @@ void IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
         }
     }
 
-    if (targetAdd)
+    if (!targetAdd)
     {
-        bot->SetTarget(targetAdd->GetGUID());
-        if (closestDist > 3.0f)
-        {
-            TryMoveToPosition(targetAdd->GetPositionX(), targetAdd->GetPositionY(), PLATFORM_Z, false);
-        }
-        else
-        {
-            bot->SetFacingToObject(targetAdd);
-            Attack(targetAdd);
-        }
-        return;
+        // Nothing to collect – stand pat and clear invalid target
+        Unit* cur = bot->GetVictim();
+        if (cur && !IsValidCollectibleAdd(cur))
+            bot->SetTarget(ObjectGuid::Empty);
+        return false;
     }
 
-    // No loose adds — stand at position (slight offset so we don't clip the main tank).
-    if (distToFrost > 2.0f)
-        TryMoveToPosition(frostPos->GetPositionX() + 2.0f, frostPos->GetPositionY() + 1.0f, PLATFORM_Z, false);
+    // Taunt the target add regardless of distance 
+    // If the taunt lands the add walks toward us; if it misses/resists we move.
+    CastSingleTargetTaunt(botAI, bot, targetAdd);
 
-    Unit* cur = bot->GetVictim();
-    if (cur && !IsValidCollectibleAdd(cur))
-        bot->SetTarget(ObjectGuid::Empty);
+    // Also taunt other loose adds in range so they come along for free
+    for (Unit* add : addsLoose)
+    {
+        if (add == targetAdd)
+            continue;
+        float const dist = bot->GetExactDist2d(add);
+        if (dist <= TAUNT_RADIUS)
+            CastSingleTargetTaunt(botAI, bot, add);
+    }
+
+    // AoE taunt if ≥2 loose adds are close enough
+    {
+        int nearbyLoose = 0;
+        for (Unit* add : addsLoose)
+            if (bot->GetExactDist2d(add) <= TAUNT_RADIUS)
+                ++nearbyLoose;
+        if (nearbyLoose >= 2)
+            CastAoeTaunt(botAI, bot);
+    }
+
+    // Move toward the add only if it is still too far to engage
+    bot->SetTarget(targetAdd->GetGUID());
+
+    if (closestDist > MELE_RANGE)
+    {
+        // Step toward add – add should be walking toward us from the taunt,
+        // so we will meet in the middle most of the time.
+        TryMoveToPosition(targetAdd->GetPositionX(), targetAdd->GetPositionY(), PLATFORM_Z, false);
+    }
+    else
+    {
+        bot->SetFacingToObject(targetAdd);
+        Attack(targetAdd);
+    }
+
+    return false;
 }
 
-void IccLichKingWinterAction::HandlePetManagement()
+bool IccLichKingWinterAction::HandlePetManagement()
 {
     Pet* pet = bot->GetPet();
     if (!pet || !pet->IsAlive())
-        return;
+        return false;
 
     CharmInfo* ci = pet->GetCharmInfo();
     if (!ci)
-        return;
+        return false;
 
-    // ── Healers: passive follow ───────────────────────────────────────────────
+    // Healers: passive follow 
     if (botAI->IsHeal(bot))
     {
         // Only issue the command when the pet is not already following.
@@ -7421,7 +7562,7 @@ void IccLichKingWinterAction::HandlePetManagement()
             ci->SetIsFollowing(false);
             ci->RemoveStayPosition();
         }
-        return;
+        return false;
     }
 
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
@@ -7463,11 +7604,11 @@ void IccLichKingWinterAction::HandlePetManagement()
 
     // No valid add target exists yet (or all are dead).
     if (!bestTarget)
-        return;
+        return false;
 
     // Skip if the pet is already attacking the right unit.
     if (pet->GetVictim() == bestTarget)
-        return;
+        return false;
 
     // Command the pet to attack.
     ci->SetIsCommandAttack(true);
@@ -7482,6 +7623,8 @@ void IccLichKingWinterAction::HandlePetManagement()
         pet->AI()->AttackStart(bestTarget);
         pet->GetMotionMaster()->MoveChase(bestTarget);
     }
+
+    return false;
 }
 
 bool IccLichKingAddsAction::Execute(Event /*event*/)
@@ -7495,7 +7638,7 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
     bool const hasPlague = botAI->HasAura("Necrotic Plague", bot);
     Unit* const terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
 
-    // ── Heroic cheat buffs ────────────────────────────────────────────────────
+    // Heroic cheat buffs 
     if (sPlayerbotAIConfig.EnableICCBuffs && diff && IsHeroicLk(diff))
     {
         if (!bot->HasAura(SPELL_EXPERIENCED))
@@ -7510,14 +7653,14 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
             bot->AddAura(SPELL_PAIN_SUPPRESION, bot);
     }
 
-    // ── Phase 1: mark boss with skull ────────────────────────────────────────
+    // Phase 1: mark boss with skull
     if (Group* group = bot->GetGroup())
     {
         if (boss && boss->HealthAbovePct(71) && group->GetTargetIcon(7) != boss->GetGUID())
             group->SetTargetIcon(7, bot->GetGUID(), boss->GetGUID());
     }
 
-    // ── Val'kyr edge-dive (ongoing) ───────────────────────────────────────────
+    // Val'kyr edge-dive (ongoing) 
     if (bot->HasAura(30440))
     {
         if (bot->GetPositionZ() > 779.0f)
@@ -7527,7 +7670,7 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
         return true;
     }
 
-    // ── Phase 2: detect bots fallen off edge and initiate dive ───────────────
+    // Phase 2: detect bots fallen off edge and initiate dive
     auto const hasAnyWinterAura = [&]() -> bool
     {
         if (!boss)
@@ -7551,10 +7694,10 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
         }
     }
 
-    // ── Teleport fixes ────────────────────────────────────────────────────────
+    // Teleport fixes
     HandleTeleportationFixes(diff, terenas);
 
-    // ── Heroic: Terenas / spirit phase ────────────────────────────────────────
+    // Heroic: Terenas / spirit phase 
     if (HandleSpiritBombAvoidance(diff, terenas))
         return true;
 
@@ -7564,7 +7707,7 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
     if (terenas)
         return false;
 
-    // ── Normal encounter flow ─────────────────────────────────────────────────
+    // Normal encounter flow
     if (HandleQuakeMechanics(boss))
         return true;
 
@@ -7581,7 +7724,7 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
     return false;
 }
 
-void IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* terenas)
+bool IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* terenas)
 {
     // Normal mode: snap back if somehow teleported far outside the encounter area
     if (!IsHeroicLk(diff) && std::abs(bot->GetPositionY() - (-2095.7915f)) > 200.0f)
@@ -7589,7 +7732,7 @@ void IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
         bot->TeleportTo(bot->GetMapId(), ICC_LICH_KING_ADDS_POSITION.GetPositionX(),
                         ICC_LICH_KING_ADDS_POSITION.GetPositionY(), ICC_LICH_KING_ADDS_POSITION.GetPositionZ(),
                         bot->GetOrientation());
-        return;
+        return false;
     }
 
     // Fix bots going underground (buggy ice-platform collisions)
@@ -7597,7 +7740,7 @@ void IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
         std::abs(bot->GetPositionZ() - 840.857f) > 1.0f)
     {
         bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), 840.857f, bot->GetOrientation());
-        return;
+        return false;
     }
 
     // Heroic: keep bot near Terenas during Harvest Soul
@@ -7607,6 +7750,8 @@ void IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
         bot->TeleportTo(bot->GetMapId(), terenas->GetPositionX(), terenas->GetPositionY(), 1049.865f,
                         bot->GetOrientation());
     }
+
+    return false;
 }
 
 bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* terenas)
@@ -7726,29 +7871,31 @@ bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* ter
     return true;
 }
 
-void IccLichKingAddsAction::HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas)
+bool IccLichKingAddsAction::HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas)
 {
     if (!terenas || botAI->IsMainTank(bot) || !diff || !IsHeroicLk(diff))
-        return;
+        return false;
 
     Unit* mainTank = AI_VALUE(Unit*, "main tank");
     if (!mainTank)
-        return;
+        return false;
 
     // Stack on main tank — 3-yard threshold avoids micro-jitter
     if (bot->GetExactDist2d(mainTank) > 3.0f)
         MoveTo(bot->GetMapId(), mainTank->GetPositionX(), mainTank->GetPositionY(), mainTank->GetPositionZ(), false,
                false, false, true, MovementPriority::MOVEMENT_FORCED);
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas)
+bool IccLichKingAddsAction::HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas)
 {
     if (!terenas || botAI->IsMainTank(bot) || !diff || !IsHeroicLk(diff))
-        return;
+        return false;
 
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     static constexpr uint8_t STAR_ICON = 0;
     static constexpr float MAX_Z_DIFF = 20.0f;
@@ -7823,6 +7970,8 @@ void IccLichKingAddsAction::HandleSpiritMarkingAndTargeting(Difficulty diff, Uni
             bot->Kill(bot, starTarget);
         }
     }
+
+    return false;
 }
 
 bool IccLichKingAddsAction::HandleQuakeMechanics(Unit* boss)
@@ -7857,10 +8006,10 @@ bool IccLichKingAddsAction::HandleQuakeMechanics(Unit* boss)
     return false;
 }
 
-void IccLichKingAddsAction::HandleShamblingHorrors(Unit* /*boss*/, bool /*hasPlague*/)
+bool IccLichKingAddsAction::HandleShamblingHorrors(Unit* /*boss*/, bool /*hasPlague*/)
 {
     if (bot->getClass() != CLASS_HUNTER)
-        return;
+        return false;
 
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
     for (ObjectGuid const& guid : npcs)
@@ -7872,16 +8021,59 @@ void IccLichKingAddsAction::HandleShamblingHorrors(Unit* /*boss*/, bool /*hasPla
         if (botAI->HasAura("Enrage", unit))
         {
             botAI->CastSpell("Tranquilizing Shot", unit);
-            return;
+            return false;
         }
     }
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty diff)
+bool IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty diff)
 {
     if (!botAI->IsAssistTank(bot) || !boss || boss->HealthBelowPct(71))
-        return;
+        return false;
 
+    Position const& holdPos = IsHeroicLk(diff) ? ICC_LICH_KING_ASSISTHC_POSITION : ICC_LICH_KING_ADDS_POSITION;
+
+    // Helper: class-specific single-target taunt
+    // Returns true if any threat-generating ability was cast.
+    // Priority: class taunt > generic "taunt" > ranged attack.
+    auto CastClassTaunt = [&](Unit* target) -> bool
+    {
+        if (!target || !target->IsAlive())
+            return false;
+        
+        // Explicit class-specific single-target taunts
+        switch (bot->getClass())
+        {
+            case CLASS_PALADIN:
+                if (botAI->CastSpell("hand of reckoning", target))
+                    return true;
+                break;
+            case CLASS_DEATH_KNIGHT:
+                if (botAI->CastSpell("dark command", target))
+                    return true;
+                break;
+            case CLASS_DRUID:
+                if (botAI->CastSpell("growl", target))
+                    return true;
+                break;
+            case CLASS_WARRIOR:
+                if (botAI->CastSpell("taunt", target))
+                    return true;
+                break;
+            default:
+                break;
+        }
+
+        // Last resort: ranged poke to generate threat without moving
+        if (botAI->CastSpell("shoot", target) || botAI->CastSpell("throw", target))
+            return true;
+
+        return false;
+    };
+
+    // Categorise visible adds 
     GuidVector const& targets = AI_VALUE(GuidVector, "possible targets");
 
     std::vector<Unit*> addsOnUs;
@@ -7899,79 +8091,59 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
             addsElsewhere.push_back(unit);
     }
 
-    if (!addsElsewhere.empty())
-    {
-        // Shamblings take absolute priority; fall back to closest add
-        Unit* priorityTarget = nullptr;
-        Unit* closestAdd = nullptr;
-        float closestDist = FLT_MAX;
-
-        for (Unit* add : addsElsewhere)
-        {
-            if (IsLkShambling(add->GetEntry()))
-            {
-                priorityTarget = add;
-                break;
-            }
-
-            float const dist = bot->GetExactDist2d(add);
-            if (dist < closestDist)
-            {
-                closestDist = dist;
-                closestAdd = add;
-            }
-        }
-
-        Unit* targetToAttack = priorityTarget ? priorityTarget : closestAdd;
-        if (!targetToAttack)
-            return;
-
-        // Generate threat on all loose adds via taunt or ranged abilities
-        for (Unit* add : addsElsewhere)
-        {
-            float const dist = bot->GetExactDist2d(add);
-            if (dist > 30.0f)
-                continue;
-
-            if (botAI->CastSpell("taunt", add))
-                continue;
-            if (botAI->CastSpell("shoot", add) || botAI->CastSpell("throw", add))
-                continue;
-            // No AttackerStateUpdate — it bypasses game damage/threat logic
-        }
-
-        if (bot->GetExactDist2d(targetToAttack) > 5.0f)
-        {
-            MoveTo(bot->GetMapId(), targetToAttack->GetPositionX(), targetToAttack->GetPositionY(),
-                   targetToAttack->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_FORCED, true,
-                   false);
-        }
-        else
-        {
-            bot->SetTarget(targetToAttack->GetGUID());
-            bot->SetFacingToObject(targetToAttack);
-            Attack(targetToAttack);
-        }
-        return;
-    }
-
-    Position const& holdPos = IsHeroicLk(diff) ? ICC_LICH_KING_ASSISTHC_POSITION : ICC_LICH_KING_ADDS_POSITION;
-
-    if (bot->GetExactDist2d(holdPos) > 2.0f)
+    // Step 1: return to hold position if we have drifted
+    float const distToHold = bot->GetExactDist2d(holdPos);
+    if (distToHold > 5.0f)
     {
         MoveTo(bot->GetMapId(), holdPos.GetPositionX(), holdPos.GetPositionY(), holdPos.GetPositionZ(), false, false,
                false, true, MovementPriority::MOVEMENT_FORCED, true, false);
     }
 
-    if (addsOnUs.empty())
-        return;
+    // Step 2: taunt every loose add in range (do NOT move toward them)
+    // Shamblings get priority so their Enrage does not wipe the raid.
+    Unit* priorityLoose = nullptr;
 
+    for (Unit* add : addsElsewhere)
+    {
+        float const dist = bot->GetExactDist2d(add);
+
+        if (IsLkShambling(add->GetEntry()) && !priorityLoose)
+            priorityLoose = add;
+
+        // Taunt if within 30 yd (standard taunt range).
+        if (dist <= 30.0f)
+            CastClassTaunt(add);
+    }
+
+    // Step 3: emergency rescue – add already at melee range on a non-tank
+    if (priorityLoose == nullptr)
+    {
+        for (Unit* add : addsElsewhere)
+        {
+            Unit* victim = add->GetVictim();
+            bool rescueNeeded = victim && victim->IsPlayer() && !botAI->IsTank(victim->ToPlayer());
+
+            if (rescueNeeded && bot->GetExactDist2d(add) <= 5.0f)
+            {
+                bot->SetTarget(add->GetGUID());
+                bot->SetFacingToObject(add);
+                Attack(add);
+                return false;
+            }
+        }
+    }
+
+    // Step 4: fight adds that are already on us (at the hold spot)
+    if (addsOnUs.empty())
+        return false;
+
+    // Stable target selection: keep current target if still valid.
     Unit* currentTarget = bot->GetVictim();
     bool keepCurrent = false;
 
     if (currentTarget && currentTarget->IsAlive())
     {
-        for (Unit const* add : addsOnUs)
+        for (Unit* add : addsOnUs)
         {
             if (add->GetGUID() == currentTarget->GetGUID())
             {
@@ -7984,7 +8156,7 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
     if (!keepCurrent)
     {
         currentTarget = nullptr;
-
+        // Shambling Horror first, then any other add.
         for (Unit* add : addsOnUs)
         {
             if (IsLkShambling(add->GetEntry()))
@@ -7993,7 +8165,6 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
                 break;
             }
         }
-
         if (!currentTarget && !addsOnUs.empty())
             currentTarget = addsOnUs.front();
     }
@@ -8004,35 +8175,37 @@ void IccLichKingAddsAction::HandleAssistTankAddManagement(Unit* boss, Difficulty
         bot->SetFacingToObject(currentTarget);
         Attack(currentTarget);
     }
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff)
+bool IccLichKingAddsAction::HandleMeleePositioning(Unit* boss, bool hasPlague, Difficulty diff)
 {
     if (!boss || !botAI->IsMelee(bot) || botAI->IsAssistTank(bot) || boss->HealthBelowPct(71) || hasPlague ||
         IsHeroicLk(diff))
-        return;
+        return false;
 
     float const distToPos = bot->GetDistance(ICC_LICH_KING_MELEE_POSITION);
     if (distToPos <= 6.0f)
-        return;
+        return false;
 
     if (!botAI->IsMainTank(bot))
     {
         MoveTo(bot->GetMapId(), ICC_LICH_KING_MELEE_POSITION.GetPositionX(),
                ICC_LICH_KING_MELEE_POSITION.GetPositionY(), ICC_LICH_KING_MELEE_POSITION.GetPositionZ(), false, false,
                false, true, MovementPriority::MOVEMENT_FORCED, true, false);
-        return;
+        return false;
     }
 
     // Main tank: step toward position in 3-yard increments to avoid overshooting
     if (boss->GetVictim() != bot)
-        return;
+        return false;
 
     float const dx = ICC_LICH_KING_MELEE_POSITION.GetPositionX() - bot->GetPositionX();
     float const dy = ICC_LICH_KING_MELEE_POSITION.GetPositionY() - bot->GetPositionY();
     float const len = std::hypot(dx, dy);
     if (len < 0.1f)
-        return;
+        return false;
 
     float const step = std::min(3.0f, len - 1.0f);
     if (step <= 0.0f)
@@ -8040,43 +8213,47 @@ void IccLichKingAddsAction::HandleMeleePositioning(Unit* boss, bool hasPlague, D
         MoveTo(bot->GetMapId(), ICC_LICH_KING_MELEE_POSITION.GetPositionX(),
                ICC_LICH_KING_MELEE_POSITION.GetPositionY(), bot->GetPositionZ(), false, false, false, true,
                MovementPriority::MOVEMENT_FORCED, true, false);
-        return;
+        return false;
     }
 
     MoveTo(bot->GetMapId(), bot->GetPositionX() + (dx / len) * step, bot->GetPositionY() + (dy / len) * step,
            bot->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleMainTankTargeting(Unit* boss, Difficulty diff)
+bool IccLichKingAddsAction::HandleMainTankTargeting(Unit* boss, Difficulty diff)
 {
     if (!botAI->IsMainTank(bot) || !boss || !IsHeroicLk(diff))
-        return;
+        return false;
 
     if (boss->HealthBelowPct(71) || boss->GetVictim() == bot)
-        return;
+        return false;
 
     bot->SetTarget(boss->GetGUID());
     bot->SetFacingToObject(boss);
     Attack(boss);
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague)
+bool IccLichKingAddsAction::HandleNonTankHeroicPositioning(Unit* boss, Difficulty diff, bool hasPlague)
 {
     if (botAI->IsTank(bot) || !boss || !IsHeroicLk(diff))
-        return;
+        return false;
 
     if (boss->HealthBelowPct(71) || hasPlague)
-        return;
+        return false;
 
     Unit* mainTank = AI_VALUE(Unit*, "main tank");
     if (!mainTank)
-        return;
+        return false;
 
     float const distToTank = bot->GetDistance2d(mainTank);
 
     if (bot->getClass() == CLASS_HUNTER)
     {
-        // Hunters maintain a longer leash — move in 2-yard steps to avoid jitter
+        // Hunters maintain a longer leash — move in 2-yard steps to abool jitter
         if (distToTank > 20.0f)
         {
             float const dx = mainTank->GetPositionX() - bot->GetPositionX();
@@ -8097,23 +8274,27 @@ void IccLichKingAddsAction::HandleNonTankHeroicPositioning(Unit* boss, Difficult
             MoveTo(bot->GetMapId(), mainTank->GetPositionX(), mainTank->GetPositionY(), bot->GetPositionZ(), false,
                    false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
     }
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff)
+bool IccLichKingAddsAction::HandleRangedPositioning(Unit* boss, bool hasPlague, Difficulty diff)
 {
     if (!boss || !botAI->IsRanged(bot) || boss->HealthBelowPct(71) || hasPlague || IsHeroicLk(diff))
-        return;
+        return false;
 
     if (bot->GetDistance(ICC_LICH_KING_RANGED_POSITION) > 2.0f)
         MoveTo(bot->GetMapId(), ICC_LICH_KING_RANGED_POSITION.GetPositionX(),
                ICC_LICH_KING_RANGED_POSITION.GetPositionY(), ICC_LICH_KING_RANGED_POSITION.GetPositionZ(), false, false,
                false, true, MovementPriority::MOVEMENT_FORCED, true, false);
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
+bool IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
 {
     if (!boss)
-        return;
+        return false;
 
     static constexpr float SAFETY_MARGIN = 3.0f;
     static constexpr float MOVE_DISTANCE = 5.0f;
@@ -8206,7 +8387,7 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
     }
 
     if (!boss->HasUnitState(UNIT_STATE_CASTING) || !boss->FindCurrentSpellBySpellId(DEFILE_CAST_ID))
-        return;
+        return false;
 
     Map::PlayerList const& players = bot->GetMap()->GetPlayers();
     uint32 playerCount = 0;
@@ -8230,7 +8411,7 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
     }
 
     if (playerCount == 0)
-        return;
+        return false;
 
     float const preferredAngle = (float(botIndex) / float(playerCount)) * 2.0f * float(M_PI);
     float bestAngle = preferredAngle;
@@ -8302,14 +8483,16 @@ void IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
         MoveTo(bot->GetMapId(), spreadX, spreadY, spreadZ, false, false, false, false,
                MovementPriority::MOVEMENT_COMBAT);
     }
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
+bool IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
 
@@ -8320,8 +8503,7 @@ void IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
         if (!unit || !unit->IsAlive() || !IsLkValkyr(unit))
             continue;
 
-        // Heroic: only target Val'kyrs above 49% health (below that they die
-        // from sheer damage pressure before they can throw anyone)
+        // Heroic: only target Val'kyrs above 49% health (they wont pickup anyone anymore and are 2 tanky to kill, better to focus LK
         bool const isGrabbing =
             unit->HasAura(SPELL_HARVEST_SOUL_VALKYR) && (!IsHeroicLk(diff) || unit->HealthAbovePct(49));
 
@@ -8344,21 +8526,23 @@ void IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
                 group->SetTargetIcon(7, bot->GetGUID(), unit->GetGUID());
             break;
         }
-        return;
+        return false;
     }
 
     if (botAI->IsMainTank(bot))
-        return;
+        return false;
 
     HandleValkyrMarking(grabbingValkyrs, diff);
     HandleValkyrAssignment(grabbingValkyrs);
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleValkyrMarking(std::vector<Unit*> const& grabbingValkyrs, Difficulty diff)
+bool IccLichKingAddsAction::HandleValkyrMarking(std::vector<Unit*> const& grabbingValkyrs, Difficulty diff)
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     std::vector<Unit*> sorted = grabbingValkyrs;
     std::sort(sorted.begin(), sorted.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
@@ -8395,17 +8579,19 @@ void IccLichKingAddsAction::HandleValkyrMarking(std::vector<Unit*> const& grabbi
         if (!marked || marked != sorted[i])
             group->SetTargetIcon(Icons[i], bot->GetGUID(), sorted[i]->GetGUID());
     }
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleValkyrAssignment(std::vector<Unit*> const& grabbingValkyrs)
+bool IccLichKingAddsAction::HandleValkyrAssignment(std::vector<Unit*> const& grabbingValkyrs)
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return;
+        return false;
 
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (boss && boss->HealthBelowPct(40))
-        return;
+        return false;
 
     std::vector<Unit*> valid;
     for (Unit* valkyr : grabbingValkyrs)
@@ -8414,7 +8600,7 @@ void IccLichKingAddsAction::HandleValkyrAssignment(std::vector<Unit*> const& gra
             valid.push_back(valkyr);
     }
     if (valid.empty())
-        return;
+        return false;
 
     std::sort(valid.begin(), valid.end(), [](Unit* a, Unit* b) { return a->GetGUID() < b->GetGUID(); });
 
@@ -8427,21 +8613,21 @@ void IccLichKingAddsAction::HandleValkyrAssignment(std::vector<Unit*> const& gra
             assistMembers.push_back(member);
     }
     if (assistMembers.empty())
-        return;
+        return false;
 
     std::sort(assistMembers.begin(), assistMembers.end(),
               [](Player* a, Player* b) { return a->GetGUID() < b->GetGUID(); });
 
     auto const it = std::find(assistMembers.begin(), assistMembers.end(), bot);
     if (it == assistMembers.end())
-        return;
+        return false;
 
     size_t const myIndex = std::distance(assistMembers.begin(), it);
     auto const groupSizes = CalculateBalancedGroupSizes(assistMembers.size(), valid.size());
     size_t const valkyrIndex = GetAssignedValkyrIndex(myIndex, groupSizes);
 
     if (valkyrIndex >= valid.size())
-        return;
+        return false;
 
     Unit* myValkyr = valid[valkyrIndex];
     context->GetValue<std::string>("rti")->Set(GetRTIValueForValkyr(valkyrIndex));
@@ -8454,9 +8640,11 @@ void IccLichKingAddsAction::HandleValkyrAssignment(std::vector<Unit*> const& gra
         bot->AddAura(SPELL_HAMMER_OF_JUSTICE, myValkyr);
 
     ApplyCCToValkyr(myValkyr);
+
+    return false;
 }
 
-void IccLichKingAddsAction::HandleVileSpiritMechanics()
+bool IccLichKingAddsAction::HandleVileSpiritMechanics()
 {
     static constexpr float SAFE_RADIUS = 12.0f;
 
@@ -8474,6 +8662,8 @@ void IccLichKingAddsAction::HandleVileSpiritMechanics()
         if (dist < SAFE_RADIUS)
             MoveAway(unit, SAFE_RADIUS - dist);
     }
+
+    return false;
 }
 
 bool IccLichKingAddsAction::IsValkyr(Unit* unit) { return IsLkValkyr(unit); }
@@ -8523,7 +8713,7 @@ std::string IccLichKingAddsAction::GetRTIValueForValkyr(size_t valkyrIndex)
     }
 }
 
-void IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
+bool IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
 {
     switch (bot->getClass())
     {
@@ -8570,4 +8760,6 @@ void IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
         default:
             break;
     }
+
+    return false;
 }

@@ -212,8 +212,8 @@ const std::vector<uint32> spellEntriesFlood           = {
                                                         69799, 69801, 69802, 69795};
 
 const std::vector<uint32> availableTargetsGS          = {
-    NPC_KOR_KRON_AXETHROWER, NPC_KOR_KRON_ROCKETEER,        NPC_KOR_KRON_BATTLE_MAGE, NPC_IGB_HIGH_OVERLORD_SAURFANG,
-    NPC_SKYBREAKER_RIFLEMAN, NPC_SKYBREAKER_MORTAR_SOLDIER, NPC_SKYBREAKER_SORCERER,  NPC_IGB_MURADIN_BRONZEBEARD};
+                                                        NPC_KOR_KRON_AXETHROWER, NPC_KOR_KRON_ROCKETEER,        NPC_KOR_KRON_BATTLE_MAGE, NPC_IGB_HIGH_OVERLORD_SAURFANG,
+                                                        NPC_SKYBREAKER_RIFLEMAN, NPC_SKYBREAKER_MORTAR_SOLDIER, NPC_SKYBREAKER_SORCERER,  NPC_IGB_MURADIN_BRONZEBEARD};
 
 static std::vector<ObjectGuid> sporeOrder;
 
