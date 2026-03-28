@@ -2035,16 +2035,37 @@ bool IccRotfaceTankPositionAction::Execute(Event /*event*/)
         return false;
 
     Unit* smallOoze = AI_VALUE2(Unit*, "find target", "little ooze");
-    bool victimOfSmallOoze = smallOoze && smallOoze->GetVictim() == bot;
 
-    // Mark Rotface with skull
     MarkBossWithSkull(boss);
 
-    // Only main tank should handle boss; skip big oozes unless designated assist
-    if (botAI->IsMainTank(bot) && !botAI->IsAssistTank(bot))
-        return PositionMainTankAndMelee(boss, smallOoze);
+    if (botAI->IsMainTank(bot))
+    {
+        // Check if assist tank is alive
+        bool assistTankAlive = false;
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+            {
+                Player* member = itr->GetSource();
+                if (member && member->IsAlive() && member != bot && botAI->IsAssistTank(member))
+                {
+                    assistTankAlive = true;
+                    break;
+                }
+            }
+        }
 
-    // Assist tanks handle big oozes
+        // Check if big ooze is already being handled by assist tank
+        Unit* bigOoze = AI_VALUE2(Unit*, "find target", "big ooze");
+        bool bigOozeHandled = bigOoze && bigOoze->IsAlive() && bigOoze->GetVictim() &&
+                              bigOoze->GetVictim()->IsPlayer() && botAI->IsAssistTank(bigOoze->GetVictim()->ToPlayer());
+
+        if (bigOoze && bigOoze->IsAlive() && !assistTankAlive && !bigOozeHandled)
+            return HandleAssistTankPositioning(boss);
+
+        return PositionMainTankAndMelee(boss, smallOoze);
+    }
+
     if (botAI->IsAssistTank(bot))
         return HandleAssistTankPositioning(boss);
 
@@ -2117,13 +2138,59 @@ bool IccRotfaceTankPositionAction::HandleAssistTankPositioning(Unit* boss)
     if (activeBigOozes.empty())
         return false;
 
-    // Determine which big ooze this assist tank is assigned to
-    Unit* targetOoze = FindAssignedBigOoze(boss, activeBigOozes);
+    // Taunt ALL big oozes not currently on us
+    for (Unit* ooze : activeBigOozes)
+    {
+        if (ooze->GetVictim() != bot)
+        {
+            botAI->CastSpell("taunt", ooze);
+            switch (bot->getClass())
+            {
+                case CLASS_PALADIN:
+                    botAI->CastSpell("hand of reckoning", ooze);
+                    break;
+                case CLASS_DEATH_KNIGHT:
+                    botAI->CastSpell("dark command", ooze);
+                    break;
+                case CLASS_DRUID:
+                    botAI->CastSpell("growl", ooze);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    // Find closest big ooze to kite
+    Unit* targetOoze = nullptr;
+    float minDist = FLT_MAX;
+    for (Unit* ooze : activeBigOozes)
+    {
+        float dist = bot->GetExactDist2d(ooze);
+        if (dist < minDist)
+        {
+            minDist = dist;
+            targetOoze = ooze;
+        }
+    }
 
     if (!targetOoze)
         return false;
 
-    // Taunt if needed and kite
+    // Move toward ooze if far to get in taunt range
+    if (minDist > 20.0f)
+    {
+        float dx = targetOoze->GetPositionX() - bot->GetPositionX();
+        float dy = targetOoze->GetPositionY() - bot->GetPositionY();
+        float len = std::hypot(dx, dy);
+        float moveX = bot->GetPositionX() + (dx / len) * 5.0f;
+        float moveY = bot->GetPositionY() + (dy / len) * 5.0f;
+        if (!bot->HasAura(SPELL_NITRO_BOOSTS))
+            bot->AddAura(SPELL_NITRO_BOOSTS, bot);
+        return MoveTo(bot->GetMapId(), moveX, moveY, bot->GetPositionZ(), false, false, false, false,
+                      MovementPriority::MOVEMENT_COMBAT);
+    }
+
     return HandleBigOozeKiting(targetOoze);
 }
 
@@ -2175,15 +2242,23 @@ Unit* IccRotfaceTankPositionAction::FindAssignedBigOoze(Unit* /*boss*/, std::vec
 
 bool IccRotfaceTankPositionAction::HandleBigOozeKiting(Unit* bigOoze)
 {
-    // Taunt if not targeting us
     if (bigOoze->GetVictim() != bot && bigOoze->IsAlive())
     {
-        if (botAI->CastSpell("taunt", bigOoze))
-            return true;
-
-        bot->SetTarget(bigOoze->GetGUID());
-        bot->SetFacingToObject(bigOoze);
-        Attack(bigOoze);
+        botAI->CastSpell("taunt", bigOoze);
+        switch (bot->getClass())
+        {
+            case CLASS_PALADIN:
+                botAI->CastSpell("hand of reckoning", bigOoze);
+                break;
+            case CLASS_DEATH_KNIGHT:
+                botAI->CastSpell("dark command", bigOoze);
+                break;
+            case CLASS_DRUID:
+                botAI->CastSpell("growl", bigOoze);
+                break;
+            default:
+                break;
+        }
     }
 
     float oozeDistance = bot->GetExactDist2d(bigOoze);
@@ -2193,6 +2268,24 @@ bool IccRotfaceTankPositionAction::HandleBigOozeKiting(Unit* bigOoze)
     {
         bot->SetTarget(bigOoze->GetGUID());
         bot->SetFacingToObject(bigOoze);
+
+        // Always re-taunt even if already on us to maintain aggro during kiting
+        botAI->CastSpell("taunt", bigOoze);
+        switch (bot->getClass())
+        {
+            case CLASS_PALADIN:
+                botAI->CastSpell("hand of reckoning", bigOoze);
+                break;
+            case CLASS_DEATH_KNIGHT:
+                botAI->CastSpell("dark command", bigOoze);
+                break;
+            case CLASS_DRUID:
+                botAI->CastSpell("growl", bigOoze);
+                break;
+            default:
+                break;
+        }
+
         return true;
     }
 
@@ -2404,13 +2497,14 @@ bool IccRotfaceGroupPositionAction::HandleOozeMemberPositioning()
         {
             return MoveTo(bot->GetMapId(), ICC_ROTFACE_BIG_OOZE_POSITION.GetPositionX(),
                           ICC_ROTFACE_BIG_OOZE_POSITION.GetPositionY(), ICC_ROTFACE_BIG_OOZE_POSITION.GetPositionZ(),
-                          false, false, false, true, MovementPriority::MOVEMENT_COMBAT);
+                          false, false, false, true, MovementPriority::MOVEMENT_FORCED);
         }
+
+        return true;  // Already at position, hold here
     }
     // Second case: Big ooze exists and is alive, move to it for merging
     else if (bot->GetExactDist2d(bigOoze) > 2.0f && bigOoze->IsAlive() && bigOoze->IsVisible())
     {
-        // Move to big ooze for merge in increments of 5
         float dx = bigOoze->GetPositionX() - bot->GetPositionX();
         float dy = bigOoze->GetPositionY() - bot->GetPositionY();
         float dz = bigOoze->GetPositionZ() - bot->GetPositionZ();
@@ -2423,20 +2517,23 @@ bool IccRotfaceGroupPositionAction::HandleOozeMemberPositioning()
             float moveY = bot->GetPositionY() + dy * 5.0f;
             float moveZ = bot->GetPositionZ() + (dz / dist) * 5.0f;
             return MoveTo(bot->GetMapId(), moveX, moveY, moveZ, false, false, false, true,
-                          MovementPriority::MOVEMENT_COMBAT);
+                          MovementPriority::MOVEMENT_FORCED);
         }
         return MoveTo(bot->GetMapId(), bigOoze->GetPositionX(), bigOoze->GetPositionY(), bigOoze->GetPositionZ(), false,
-                      false, false, true, MovementPriority::MOVEMENT_COMBAT);
-
+                      false, false, true, MovementPriority::MOVEMENT_FORCED);
     }
 
-    return false;  // Stay at position
+    return false;
 }
 
 bool IccRotfaceGroupPositionAction::PositionRangedAndHealers(Unit* boss,Unit *smallOoze)
 {
     // Only for ranged and healers
     if (!(botAI->IsRanged(bot) || botAI->IsHeal(bot)))
+        return false;
+
+    // If we are victim of small ooze, skip positioning entirely
+    if (smallOoze && smallOoze->GetVictim() == bot)
         return false;
 
     Difficulty diff = bot->GetRaidDifficulty();
@@ -2510,7 +2607,8 @@ bool IccRotfaceGroupPositionAction::FindAndMoveFromClosestMember(Unit* boss, Uni
     for (auto const& memberGuid : members)
     {
         Unit* member = botAI->GetUnit(memberGuid);
-        if (!member || !member->IsAlive() || member == bot || (smallOoze && smallOoze->GetVictim() == member) ||
+        if (!member || !member->IsAlive() || member == bot ||
+            (smallOoze && smallOoze->GetVictim() == member) ||  // ignore small ooze victims
             (member->IsPlayer() && botAI->IsAssistTank(static_cast<Player*>(member))))
             continue;
 
@@ -3010,8 +3108,7 @@ bool IccPutricideGasCloudAction::HandleGaseousBloatMovement(Unit* gasCloud)
         return false;
 
     if (hasGaseousBloat && !bot->HasAura(SPELL_NITRO_BOOSTS))
-        bot->AddAura(SPELL_NITRO_BOOSTS,
-                     bot);  // to make it a bit easier when abo fails to slow or bots take forever to kill oozes
+        bot->AddAura(SPELL_NITRO_BOOSTS, bot);  // to make it a bit easier when abo fails to slow or bots take forever to kill oozes
 
     static const int NUM_ANGLES = 32;  // Increased from 16 for better corner escape
     static const float MIN_SAFE_DISTANCE = 35.0f;
