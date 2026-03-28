@@ -5047,6 +5047,7 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
                            MovementPriority::MOVEMENT_COMBAT, true, false);
                 }
             }
+            /*
             // Maintain minimum distance from center position (if too close to center, move out)
             float centerX = ICC_BQL_CENTER_POSITION.GetPositionX();
             float centerY = ICC_BQL_CENTER_POSITION.GetPositionY();
@@ -5073,7 +5074,7 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
                     MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true,
                            MovementPriority::MOVEMENT_COMBAT, true, false);
                 }
-            }
+            }*/
         }
     }
 
