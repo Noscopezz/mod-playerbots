@@ -1288,4 +1288,3 @@ bool IccBqlVampiricBiteAction::CastVampiricBite(Player* target)
 
     return botAI->CanCastSpell("Vampiric Bite", target) && botAI->CastSpell("Vampiric Bite", target);
 }
-

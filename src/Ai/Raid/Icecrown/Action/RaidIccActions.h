@@ -57,7 +57,7 @@ inline const Position ICC_ROTFACE_RANGED_POSITION_HC_13 = Position(4425.1553f, 3
 inline const Position ICC_ROTFACE_RANGED_POSITION_HC_14 = Position(4426.3760f, 3113.4153f, 360.38626f);
 inline const Position ICC_ROTFACE_RANGED_POSITION_HC_15 = Position(4443.8027f, 3113.9207f, 360.38626f);
 inline const Position ICC_ROTFACE_RANGED_POSITION_HC_16 = Position(4432.477f, 3156.7651f, 360.38568f);
-inline const Position ICC_ROTFACE_RANGED_POSITION_HC_17 = Position(4458.083f, 3132.5842f, 360.38565f); 
+inline const Position ICC_ROTFACE_RANGED_POSITION_HC_17 = Position(4458.083f, 3132.5842f, 360.38565f);
 inline const Position ICC_ROTFACE_RANGED_POSITION_HC_18 = Position(4457.4565f, 3144.8442f, 360.38565f);
 inline const Position ICC_ROTFACE_RANGED_POSITION_HC_19 = Position(4422.5460f, 3158.0435f, 360.38565f);
 inline const Position ICC_ROTFACE_RANGED_POSITION_HC_20 = Position(4432.1646f, 3142.3418f, 360.38565f);
@@ -630,7 +630,7 @@ public:
         : MovementAction(botAI, "icc valithria zombie kite") {}
     bool Execute(Event event) override;
 };
- 
+
 class IccValithriaPortalAction : public MovementAction
 {
 public:
@@ -638,7 +638,7 @@ public:
         : MovementAction(botAI, "icc valithria portal") {}
     bool Execute(Event event) override;
 };
- 
+
 class IccValithriaHealAction : public AttackAction
 {
 public:
@@ -646,7 +646,7 @@ public:
         : AttackAction(botAI, "icc valithria heal") {}
     bool Execute(Event event) override;
 };
- 
+
 class IccValithriaDreamCloudAction : public MovementAction
 {
 public:

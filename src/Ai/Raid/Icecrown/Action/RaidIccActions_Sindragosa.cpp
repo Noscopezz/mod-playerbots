@@ -1386,4 +1386,3 @@ bool IccSindragosaFrostBombAction::HandleRtiMarking(Group* group, int groupIndex
     // Let combat actions fire so this bot DPSes the marked tomb
     return false;
 }
-

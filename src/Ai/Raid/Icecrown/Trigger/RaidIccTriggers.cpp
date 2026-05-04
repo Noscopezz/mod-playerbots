@@ -198,7 +198,7 @@ bool IccFestergutMainTankGastricBloatTrigger::IsActive()
     Aura* aura = botAI->GetAura("Gastric Bloat", mt, false, true);
     if (!aura || aura->GetStackAmount() < 6)
         return false;
-        
+
     return true;
 }
 
