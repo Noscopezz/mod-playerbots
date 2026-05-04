@@ -5,6 +5,8 @@
 
 #include "TrainerAction.h"
 
+#include "AiFactory.h"
+#include "BisListMgr.h"
 #include "BudgetValues.h"
 #include "Event.h"
 #include "PlayerbotFactory.h"
@@ -266,6 +268,70 @@ bool MaintenanceAction::Execute(Event /*event*/)
     bot->DurabilityRepairAll(false, 1.0f, false);
     bot->SendTalentsInfoData(false);
 
+    return true;
+}
+
+bool BisGearAction::Execute(Event /*event*/)
+{
+    if (!sPlayerbotAIConfig.iccBisCommand)
+    {
+        botAI->TellError("bisicc command is not allowed, please check the configuration.");
+        return false;
+    }
+
+    if (!sPlayerbotAIConfig.autoGearCommandAltBots &&
+        !sPlayerbotAIConfig.IsInRandomAccountList(bot->GetSession()->GetAccountId()))
+    {
+        botAI->TellError("You cannot use bisicc on alt bots.");
+        return false;
+    }
+
+    if (bot->GetLevel() < 80)
+    {
+        botAI->TellError("Bot must be level 80.");
+        return false;
+    }
+
+    uint8 cls = bot->getClass();
+    uint8 tab = AiFactory::GetPlayerSpecTab(bot);
+
+    // Druid Bear (Feral Tank) shares tab 1 with Cat. Use sentinel tab 10 when tank strategy active.
+    constexpr uint8 BIS_TAB_DRUID_BEAR = 10;
+    std::map<uint8, uint32> bisMap;
+    if (cls == CLASS_DRUID && tab == DRUID_TAB_FERAL && PlayerbotAI::IsTank(bot))
+        bisMap = sBisListMgr->GetBisFor(cls, BIS_TAB_DRUID_BEAR);
+    if (bisMap.empty())
+        bisMap = sBisListMgr->GetBisFor(cls, tab);
+    if (bisMap.empty())
+    {
+        botAI->TellError("No BiS list for your class/spec");
+        return false;
+    }
+
+    botAI->TellMaster("Applying BiS gear");
+
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        if (slot == EQUIPMENT_SLOT_TABARD || slot == EQUIPMENT_SLOT_BODY)
+            continue;
+
+        if (Item* old = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+    }
+
+    for (auto const& kv : bisMap)
+    {
+        bot->StoreNewItemInBestSlots(kv.second, 1);
+    }
+
+    PlayerbotFactory factory(bot, bot->GetLevel(), ITEM_QUALITY_EPIC, 0);
+    factory.InitAmmo();
+    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
+        factory.ApplyEnchantAndGemsNew();
+
+    bot->DurabilityRepairAll(false, 1.0f, false);
+
+    botAI->TellMaster("BiS applied");
     return true;
 }
 

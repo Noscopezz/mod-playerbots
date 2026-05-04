@@ -53,4 +53,11 @@ public:
     bool Execute(Event event) override;
 };
 
+class BisGearAction : public Action
+{
+public:
+    BisGearAction(PlayerbotAI* botAI) : Action(botAI, "bisicc") {}
+    bool Execute(Event event) override;
+};
+
 #endif

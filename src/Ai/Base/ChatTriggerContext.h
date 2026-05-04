@@ -65,6 +65,7 @@ public:
         creators["maintenance"] = &ChatTriggerContext::maintenance;
         creators["remove glyph"] = &ChatTriggerContext::remove_glyph;
         creators["autogear"] = &ChatTriggerContext::autogear;
+        creators["bisicc"] = &ChatTriggerContext::bisicc;
         creators["equip upgrade"] = &ChatTriggerContext::equip_upgrade;
         creators["attack"] = &ChatTriggerContext::attack;
         creators["pull"] = &ChatTriggerContext::pull;
@@ -220,6 +221,7 @@ private:
     static Trigger* maintenance(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "maintenance"); }
     static Trigger* remove_glyph(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "remove glyph"); }
     static Trigger* autogear(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "autogear"); }
+    static Trigger* bisicc(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "bisicc"); }
     static Trigger* equip_upgrade(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "equip upgrade"); }
     static Trigger* co(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "co"); }
     static Trigger* nc(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "nc"); }

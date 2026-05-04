@@ -99,4 +99,12 @@ public:
     virtual float GetValue(Action* action);
 };
 
+//GUNSHIP
+class IccGunshipMultiplier : public Multiplier
+{
+public:
+    IccGunshipMultiplier(PlayerbotAI* ai) : Multiplier(ai, "icc gunship") {}
+    virtual float GetValue(Action* action);
+};
+
 #endif

@@ -21,23 +21,29 @@ public:
         creators["icc rotting frost giant tank position"] = &RaidIccActionContext::icc_rotting_frost_giant_tank_position;
         creators["icc cannon fire"] = &RaidIccActionContext::icc_cannon_fire;
         creators["icc gunship enter cannon"] = &RaidIccActionContext::icc_gunship_enter_cannon;
-        creators["icc gunship teleport ally"] = &RaidIccActionContext::icc_gunship_teleport_ally;
-        creators["icc gunship teleport horde"] = &RaidIccActionContext::icc_gunship_teleport_horde;
+        creators["icc gunship rocket jump"] = &RaidIccActionContext::icc_gunship_rocket_jump;
+        creators["icc gunship rocket pack setup"] = &RaidIccActionContext::icc_gunship_rocket_pack_setup;
 
         creators["icc dbs tank position"] = &RaidIccActionContext::icc_dbs_tank_position;
         creators["icc adds dbs"] = &RaidIccActionContext::icc_adds_dbs;
 
+        creators["icc dogs tank position"] = &RaidIccActionContext::icc_dogs_tank_position;
+
         creators["icc festergut group position"] = &RaidIccActionContext::icc_festergut_group_position;
         creators["icc festergut spore"] = &RaidIccActionContext::icc_festergut_spore;
+        creators["icc festergut avoid malleable goo"] = &RaidIccActionContext::icc_festergut_avoid_malleable_goo;
 
         creators["icc rotface tank position"] = &RaidIccActionContext::icc_rotface_tank_position;
         creators["icc rotface group position"] = &RaidIccActionContext::icc_rotface_group_position;
         creators["icc rotface move away from explosion"] = &RaidIccActionContext::icc_rotface_move_away_from_explosion;
+        creators["icc rotface avoid vile gas"] = &RaidIccActionContext::icc_rotface_avoid_vile_gas;
 
+        creators["icc putricide mutated plague"] = &RaidIccActionContext::icc_putricide_mutated_plague;
         creators["icc putricide volatile ooze"] = &RaidIccActionContext::icc_putricide_volatile_ooze;
         creators["icc putricide gas cloud"] = &RaidIccActionContext::icc_putricide_gas_cloud;
         creators["icc putricide growing ooze puddle"] = &RaidIccActionContext::icc_putricide_growing_ooze_puddle;
         creators["icc putricide avoid malleable goo"] = &RaidIccActionContext::icc_putricide_avoid_malleable_goo;
+        creators["icc putricide abomination"] = &RaidIccActionContext::icc_putricide_abomination;
 
         creators["icc bpc keleseth tank"] = &RaidIccActionContext::icc_bpc_keleseth_tank;
         creators["icc bpc main tank"] = &RaidIccActionContext::icc_bpc_main_tank;
@@ -56,6 +62,7 @@ public:
         creators["icc valithria portal"] = &RaidIccActionContext::icc_valithria_portal;
         creators["icc valithria heal"] = &RaidIccActionContext::icc_valithria_heal;
         creators["icc valithria dream cloud"] = &RaidIccActionContext::icc_valithria_dream_cloud;
+        creators["icc valithria zombie kite"] = &RaidIccActionContext::icc_valithria_zombie_kite;
 
         creators["icc sindragosa group position"] = &RaidIccActionContext::icc_sindragosa_group_position;
         creators["icc sindragosa frost beacon"] = &RaidIccActionContext::icc_sindragosa_frost_beacon;
@@ -84,23 +91,29 @@ private:
     static Action* icc_rotting_frost_giant_tank_position(PlayerbotAI* ai) { return new IccRottingFrostGiantTankPositionAction(ai); }
     static Action* icc_cannon_fire(PlayerbotAI* ai) { return new IccCannonFireAction(ai); }
     static Action* icc_gunship_enter_cannon(PlayerbotAI* ai) { return new IccGunshipEnterCannonAction(ai); }
-    static Action* icc_gunship_teleport_ally(PlayerbotAI* ai) { return new IccGunshipTeleportAllyAction(ai); }
-    static Action* icc_gunship_teleport_horde(PlayerbotAI* ai) { return new IccGunshipTeleportHordeAction(ai); }
+    static Action* icc_gunship_rocket_jump(PlayerbotAI* ai) { return new IccGunshipRocketJumpAction(ai); }
+    static Action* icc_gunship_rocket_pack_setup(PlayerbotAI* ai) { return new IccGunshipRocketPackSetupAction(ai); }
 
     static Action* icc_dbs_tank_position(PlayerbotAI* ai) { return new IccDbsTankPositionAction(ai); }
     static Action* icc_adds_dbs(PlayerbotAI* ai) { return new IccAddsDbsAction(ai); }
 
+    static Action* icc_dogs_tank_position(PlayerbotAI* ai) { return new IccDogsTankPositionAction(ai); }
+
     static Action* icc_festergut_group_position(PlayerbotAI* ai) { return new IccFestergutGroupPositionAction(ai); }
     static Action* icc_festergut_spore(PlayerbotAI* ai) { return new IccFestergutSporeAction(ai); }
+    static Action* icc_festergut_avoid_malleable_goo(PlayerbotAI* ai) { return new IccFestergutAvoidMalleableGooAction(ai); }
 
     static Action* icc_rotface_tank_position(PlayerbotAI* ai) { return new IccRotfaceTankPositionAction(ai); }
     static Action* icc_rotface_group_position(PlayerbotAI* ai) { return new IccRotfaceGroupPositionAction(ai); }
     static Action* icc_rotface_move_away_from_explosion(PlayerbotAI* ai) { return new IccRotfaceMoveAwayFromExplosionAction(ai); }
+    static Action* icc_rotface_avoid_vile_gas(PlayerbotAI* ai) { return new IccRotfaceAvoidVileGasAction(ai); }
 
+    static Action* icc_putricide_mutated_plague(PlayerbotAI* ai) { return new IccPutricideMutatedPlagueAction(ai); }
     static Action* icc_putricide_volatile_ooze(PlayerbotAI* ai) { return new IccPutricideVolatileOozeAction(ai); }
     static Action* icc_putricide_gas_cloud(PlayerbotAI* ai) { return new IccPutricideGasCloudAction(ai); }
     static Action* icc_putricide_growing_ooze_puddle(PlayerbotAI* ai) { return new IccPutricideGrowingOozePuddleAction(ai); }
     static Action* icc_putricide_avoid_malleable_goo(PlayerbotAI* ai) { return new IccPutricideAvoidMalleableGooAction(ai); }
+    static Action* icc_putricide_abomination(PlayerbotAI* ai) { return new IccPutricideAbominationAction(ai); }
 
     static Action* icc_bpc_keleseth_tank(PlayerbotAI* ai) { return new IccBpcKelesethTankAction(ai); }
     static Action* icc_bpc_main_tank(PlayerbotAI* ai) { return new IccBpcMainTankAction(ai); }
@@ -119,6 +132,7 @@ private:
     static Action* icc_valithria_portal(PlayerbotAI* ai) { return new IccValithriaPortalAction(ai); }
     static Action* icc_valithria_heal(PlayerbotAI* ai) { return new IccValithriaHealAction(ai); }
     static Action* icc_valithria_dream_cloud(PlayerbotAI* ai) { return new IccValithriaDreamCloudAction(ai); }
+    static Action* icc_valithria_zombie_kite(PlayerbotAI* ai) { return new IccValithriaZombieKiteAction(ai); }
 
     static Action* icc_sindragosa_group_position(PlayerbotAI* ai) { return new IccSindragosaGroupPositionAction(ai); }
     static Action* icc_sindragosa_frost_beacon(PlayerbotAI* ai) { return new IccSindragosaFrostBeaconAction(ai); }
