@@ -3151,6 +3151,11 @@ bool IccLichKingAddsAction::HandleCenterStacking(Unit* boss, Difficulty diff)
         float bestDist = std::numeric_limits<float>::max();
         for (int i = 0; i < 3; ++i)
         {
+            // Only consider slots 0 and 2
+            if (i == 1)
+                continue;
+
+            // Skip unsafe candidate slots
             if (!IsSlotSafe(slots[i]))
                 continue;
 
@@ -3661,8 +3666,6 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
 
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
 
-    float spiritSumX = 0.0f;
-    float spiritSumY = 0.0f;
     uint32 spiritCount = 0;
     std::vector<Unit*> spirits;
     std::vector<Unit*> defiles;
@@ -3675,8 +3678,6 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
 
         if (IsLkVileSpirit(unit))
         {
-            spiritSumX += unit->GetPositionX();
-            spiritSumY += unit->GetPositionY();
             ++spiritCount;
             spirits.push_back(unit);
         }
@@ -3730,32 +3731,67 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
         ICC_LK_VILE_SPIRIT3_POSITION,
     };
 
-    // Reuse the shared slot unless defile or a nearby spirit invalidated it
-    if (sharedSlot >= 0 && sharedSlot < 3 &&
-        (!IsSlotSafeFromDefile(slots[sharedSlot]) || !IsSlotSafeFromSpirits(slots[sharedSlot])))
-        sharedSlot = -1;
+    // Spirits beyond this radius from bot = previous wave still alive, block move
+    static constexpr float OLD_SPIRIT_RADIUS = 20.0f;
+    // Priority order: pos1 (0), pos3 (2), pos2 (1)
+    static constexpr int SLOT_PRIORITY[3] = {0, 2, 1};
+
+    auto HasOldSpirits = [&]() -> bool
+    {
+        for (Unit const* spirit : spirits)
+        {
+            float const d = std::hypot(bot->GetPositionX() - spirit->GetPositionX(),
+                                       bot->GetPositionY() - spirit->GetPositionY());
+            if (d > OLD_SPIRIT_RADIUS)
+                return true;
+        }
+        return false;
+    };
+
+    if (sharedSlot >= 0 && sharedSlot < 3)
+    {
+        bool const defileHit = !IsSlotSafeFromDefile(slots[sharedSlot]);
+        bool const spiritHit = !IsSlotSafeFromSpirits(slots[sharedSlot]);
+
+        if (defileHit)
+        {
+            // Defile is fatal — move regardless of old spirits
+            sharedSlot = -1;
+        }
+        else if (spiritHit)
+        {
+            // New spirits at current slot; wait if previous-wave spirits still alive
+            if (HasOldSpirits())
+                return false;
+
+            sharedSlot = -1;
+        }
+        else if (sharedSlot == 1)
+        {
+            // On fallback slot (pos2); upgrade to pos1 or pos3 if now safe
+            for (int pri : SLOT_PRIORITY)
+            {
+                if (pri == 1)
+                    break;
+                if (IsSlotSafeFromDefile(slots[pri]) && IsSlotSafeFromSpirits(slots[pri]))
+                {
+                    sharedSlot = pri;
+                    break;
+                }
+            }
+        }
+    }
 
     if (sharedSlot < 0)
     {
-        // Pick the slot farthest from the spirit cluster centroid (subject to
-        // defile + spirit safety)
-        float const centroidX = spiritSumX / spiritCount;
-        float const centroidY = spiritSumY / spiritCount;
-
-        float bestDist = -1.0f;
-        for (int i = 0; i < 3; ++i)
+        for (int pri : SLOT_PRIORITY)
         {
-            if (!IsSlotSafeFromDefile(slots[i]))
+            if (!IsSlotSafeFromDefile(slots[pri]))
                 continue;
-            if (!IsSlotSafeFromSpirits(slots[i]))
+            if (!IsSlotSafeFromSpirits(slots[pri]))
                 continue;
-
-            float const d = std::hypot(slots[i].GetPositionX() - centroidX, slots[i].GetPositionY() - centroidY);
-            if (d > bestDist)
-            {
-                bestDist = d;
-                sharedSlot = i;
-            }
+            sharedSlot = pri;
+            break;
         }
 
         if (sharedSlot < 0)
@@ -3775,6 +3811,10 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
     {
         if (!bot->HasAura(SPELL_NITRO_BOOSTS))
             bot->AddAura(SPELL_NITRO_BOOSTS, bot);
+        if (!bot->HasAura(SPELL_PAIN_SUPPRESION))
+            bot->AddAura(SPELL_PAIN_SUPPRESION, bot);
+        if (!bot->HasAura(SPELL_AGEIS_OF_DALARAN))
+            bot->AddAura(SPELL_AGEIS_OF_DALARAN, bot);
 
         static constexpr float LEASH_RADIUS = 40.0f;
 
@@ -4050,44 +4090,106 @@ bool IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
     switch (bot->getClass())
     {
         case CLASS_MAGE:
-            if (!botAI->HasAura("Frost Nova", valkyr))
+            if (!botAI->HasAura("Deep Freeze", valkyr) && botAI->CanCastSpell("Deep Freeze", valkyr))
+                return botAI->CastSpell("Deep Freeze", valkyr);
+            if (!botAI->HasAura("Frost Nova", valkyr) && botAI->CanCastSpell("Frost Nova", valkyr))
                 return botAI->CastSpell("Frost Nova", valkyr);
+            if (!botAI->HasAura("Cone of Cold", valkyr) && botAI->CanCastSpell("Cone of Cold", valkyr))
+                return botAI->CastSpell("Cone of Cold", valkyr);
+            if (!botAI->HasAura("Frostbolt", valkyr) && botAI->CanCastSpell("Frostbolt", valkyr))
+                return botAI->CastSpell("Frostbolt", valkyr);
+            if (!botAI->HasAura("Slow", valkyr) && botAI->CanCastSpell("Slow", valkyr))
+                return botAI->CastSpell("Slow", valkyr);
             break;
         case CLASS_DRUID:
-            if (!botAI->HasAura("Entangling Roots", valkyr))
-                return botAI->CastSpell("Entangling Roots", valkyr);
+            if (!botAI->HasAura("Bash", valkyr) && botAI->CanCastSpell("Bash", valkyr))
+                return botAI->CastSpell("Bash", valkyr);
+            if (!botAI->HasAura("Maim", valkyr) && botAI->CanCastSpell("Maim", valkyr))
+                return botAI->CastSpell("Maim", valkyr);
+            if (!botAI->HasAura("Infected Wounds", valkyr) && botAI->CanCastSpell("Infected Wounds", valkyr))
+                return botAI->CastSpell("Infected Wounds", valkyr);
+            if (!botAI->HasAura("Faerie Fire", valkyr) && botAI->CanCastSpell("Faerie Fire", valkyr))
+                return botAI->CastSpell("Faerie Fire", valkyr);
             break;
         case CLASS_PALADIN:
-            if (!botAI->HasAura("Hammer of Justice", valkyr))
+            if (!botAI->HasAura("Hammer of Justice", valkyr) && botAI->CanCastSpell("Hammer of Justice", valkyr))
                 return botAI->CastSpell("Hammer of Justice", valkyr);
+            if (!botAI->HasAura("Judgements of the Just", valkyr) && botAI->CanCastSpell("Judgements of the Just", valkyr))
+                return botAI->CastSpell("Judgements of the Just", valkyr);
             break;
         case CLASS_WARRIOR:
-            if (!botAI->HasAura("Hamstring", valkyr))
+            if (!botAI->HasAura("Concussion Blow", valkyr) && botAI->CanCastSpell("Concussion Blow", valkyr))
+                return botAI->CastSpell("Concussion Blow", valkyr);
+            if (!botAI->HasAura("Shockwave", valkyr) && botAI->CanCastSpell("Shockwave", valkyr))
+                return botAI->CastSpell("Shockwave", valkyr);
+            if (!botAI->HasAura("Intercept", valkyr) && botAI->CanCastSpell("Intercept", valkyr))
+                return botAI->CastSpell("Intercept", valkyr);
+            if (!botAI->HasAura("Charge", valkyr) && botAI->CanCastSpell("Charge", valkyr))
+                return botAI->CastSpell("Charge", valkyr);
+            if (!botAI->HasAura("Hamstring", valkyr) && botAI->CanCastSpell("Hamstring", valkyr))
                 return botAI->CastSpell("Hamstring", valkyr);
+            if (!botAI->HasAura("Piercing Howl", valkyr) && botAI->CanCastSpell("Piercing Howl", valkyr))
+                return botAI->CastSpell("Piercing Howl", valkyr);
             break;
         case CLASS_HUNTER:
-            if (!botAI->HasAura("Concussive Shot", valkyr))
+            if (!botAI->HasAura("Intimidation", valkyr) && botAI->CanCastSpell("Intimidation", valkyr))
+                return botAI->CastSpell("Intimidation", valkyr);
+            if (!botAI->HasAura("Concussive Shot", valkyr) && botAI->CanCastSpell("Concussive Shot", valkyr))
                 return botAI->CastSpell("Concussive Shot", valkyr);
+            if (!botAI->HasAura("Wing Clip", valkyr) && botAI->CanCastSpell("Wing Clip", valkyr))
+                return botAI->CastSpell("Wing Clip", valkyr);
+            if (!botAI->HasAura("Entrapment", valkyr) && botAI->CanCastSpell("Entrapment", valkyr))
+                return botAI->CastSpell("Entrapment", valkyr);
+            if (!botAI->HasAura("Freezing Trap", valkyr) && botAI->CanCastSpell("Freezing Trap", valkyr))
+                return botAI->CastSpell("Freezing Trap", valkyr);
+            if (!botAI->HasAura("Frost Trap", valkyr) && botAI->CanCastSpell("Frost Trap", valkyr))
+                return botAI->CastSpell("Frost Trap", valkyr);
             break;
         case CLASS_ROGUE:
-            if (!botAI->HasAura("Kidney Shot", valkyr))
+            if (!botAI->HasAura("Cheap Shot", valkyr) && botAI->CanCastSpell("Cheap Shot", valkyr))
+                return botAI->CastSpell("Cheap Shot", valkyr);
+            if (!botAI->HasAura("Kidney Shot", valkyr) && botAI->CanCastSpell("Kidney Shot", valkyr))
                 return botAI->CastSpell("Kidney Shot", valkyr);
+            if (!botAI->HasAura("Gouge", valkyr) && botAI->CanCastSpell("Gouge", valkyr))
+                return botAI->CastSpell("Gouge", valkyr);
+            if (!botAI->HasAura("Blind", valkyr) && botAI->CanCastSpell("Blind", valkyr))
+                return botAI->CastSpell("Blind", valkyr);
+            if (!botAI->HasAura("Crippling Poison", valkyr) && botAI->CanCastSpell("Crippling Poison", valkyr))
+                return botAI->CastSpell("Crippling Poison", valkyr);
+            if (!botAI->HasAura("Deadly Throw", valkyr) && botAI->CanCastSpell("Deadly Throw", valkyr))
+                return botAI->CastSpell("Deadly Throw", valkyr);
             break;
         case CLASS_SHAMAN:
-            if (!botAI->HasAura("Frost Shock", valkyr))
+            if (!botAI->HasAura("Thunderstorm", valkyr) && botAI->CanCastSpell("Thunderstorm", valkyr))
+                return botAI->CastSpell("Thunderstorm", valkyr);
+            if (!botAI->HasAura("Frost Shock", valkyr) && botAI->CanCastSpell("Frost Shock", valkyr))
                 return botAI->CastSpell("Frost Shock", valkyr);
+            if (!botAI->HasAura("Earthbind Totem", valkyr) && botAI->CanCastSpell("Earthbind Totem", valkyr))
+                return botAI->CastSpell("Earthbind Totem", valkyr);
             break;
         case CLASS_DEATH_KNIGHT:
-            if (!botAI->HasAura("Chains of Ice", valkyr))
+            if (!botAI->HasAura("Hungering Cold", valkyr) && botAI->CanCastSpell("Hungering Cold", valkyr))
+                return botAI->CastSpell("Hungering Cold", valkyr);
+            if (!botAI->HasAura("Gnaw", valkyr) && botAI->CanCastSpell("Gnaw", valkyr))
+                return botAI->CastSpell("Gnaw", valkyr);
+            if (!botAI->HasAura("Chains of Ice", valkyr) && botAI->CanCastSpell("Chains of Ice", valkyr))
                 return botAI->CastSpell("Chains of Ice", valkyr);
+            if (!botAI->HasAura("Desecration", valkyr) && botAI->CanCastSpell("Desecration", valkyr))
+                return botAI->CastSpell("Desecration", valkyr);
             break;
         case CLASS_PRIEST:
-            if (!botAI->HasAura("Psychic Scream", valkyr))
-                return botAI->CastSpell("Psychic Scream", valkyr);
+            if (!botAI->HasAura("Psychic Horror", valkyr) && botAI->CanCastSpell("Psychic Horror", valkyr))
+                return botAI->CastSpell("Psychic Horror", valkyr);
+            if (!botAI->HasAura("Mind Flay", valkyr) && botAI->CanCastSpell("Mind Flay", valkyr))
+                return botAI->CastSpell("Mind Flay", valkyr);
             break;
         case CLASS_WARLOCK:
-            if (!botAI->HasAura("Fear", valkyr))
-                return botAI->CastSpell("Fear", valkyr);
+            if (!botAI->HasAura("Shadowfury", valkyr) && botAI->CanCastSpell("Shadowfury", valkyr))
+                return botAI->CastSpell("Shadowfury", valkyr);
+            if (!botAI->HasAura("Death Coil", valkyr) && botAI->CanCastSpell("Death Coil", valkyr))
+                return botAI->CastSpell("Death Coil", valkyr);
+            if (!botAI->HasAura("Curse of Exhaustion", valkyr) && botAI->CanCastSpell("Curse of Exhaustion", valkyr))
+                return botAI->CastSpell("Curse of Exhaustion", valkyr);
             break;
         default:
             break;
