@@ -292,6 +292,24 @@ bool BisGearAction::Execute(Event /*event*/)
         return false;
     }
 
+    if (sPlayerbotAIConfig.autoGearQualityLimit < 4)
+    {
+        botAI->TellError("AutoGearQualityLimit must be >= 4 for ICC BiS.");
+        return false;
+    }
+
+    if (sPlayerbotAIConfig.autoGearScoreLimit != 0 && sPlayerbotAIConfig.autoGearScoreLimit < 290)
+    {
+        botAI->TellError("AutoGearScoreLimit must be >= 290 (or 0) for ICC BiS.");
+        return false;
+    }
+
+    if (sRandomPlayerbotMgr.IsSpecPvp(bot->GetGUID().GetCounter(), bot->getClass()))
+    {
+        botAI->TellError("bisicc is PvE only, bot is configured as PvP.");
+        return false;
+    }
+
     uint8 cls = bot->getClass();
     uint8 tab = AiFactory::GetPlayerSpecTab(bot);
 
