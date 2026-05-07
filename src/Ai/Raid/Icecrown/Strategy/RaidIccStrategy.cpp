@@ -142,6 +142,9 @@ void RaidIccStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("icc sindragosa frost beacon",
         { NextAction("icc sindragosa frost beacon", ACTION_RAID + 5) }));
 
+    triggers.push_back(new TriggerNode("icc sindragosa hot",
+        { NextAction("icc sindragosa hot", ACTION_RAID + 6) }));
+
     triggers.push_back(new TriggerNode("icc sindragosa blistering cold",
         { NextAction("icc sindragosa blistering cold", ACTION_EMERGENCY + 4) }));
 

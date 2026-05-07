@@ -1062,6 +1062,32 @@ bool IccSindragosaFrostBeaconTrigger::IsActive()
     return false;
 }
 
+bool IccSindragosaHotTrigger::IsActive()
+{
+    if (!botAI->IsHeal(bot))
+        return false;
+
+    if (bot->HasAura(SPELL_FROST_BEACON))
+        return false;
+
+    Unit* boss = bot->FindNearestCreature(NPC_SINDRAGOSA, 200.0f);
+    if (!boss)
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+
+    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    {
+        Player* member = itr->GetSource();
+        if (member && member->IsAlive() && member->HasAura(SPELL_FROST_BEACON))
+            return true;
+    }
+
+    return false;
+}
+
 bool IccSindragosaBlisteringColdTrigger::IsActive()
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "sindragosa");

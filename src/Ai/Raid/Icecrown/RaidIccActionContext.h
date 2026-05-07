@@ -66,6 +66,7 @@ public:
 
         creators["icc sindragosa group position"] = &RaidIccActionContext::icc_sindragosa_group_position;
         creators["icc sindragosa frost beacon"] = &RaidIccActionContext::icc_sindragosa_frost_beacon;
+        creators["icc sindragosa hot"] = &RaidIccActionContext::icc_sindragosa_hot;
         creators["icc sindragosa blistering cold"] = &RaidIccActionContext::icc_sindragosa_blistering_cold;
         creators["icc sindragosa unchained magic"] = &RaidIccActionContext::icc_sindragosa_unchained_magic;
         creators["icc sindragosa chilled to the bone"] = &RaidIccActionContext::icc_sindragosa_chilled_to_the_bone;
@@ -136,6 +137,7 @@ private:
 
     static Action* icc_sindragosa_group_position(PlayerbotAI* ai) { return new IccSindragosaGroupPositionAction(ai); }
     static Action* icc_sindragosa_frost_beacon(PlayerbotAI* ai) { return new IccSindragosaFrostBeaconAction(ai); }
+    static Action* icc_sindragosa_hot(PlayerbotAI* ai) { return new IccSindragosaHotAction(ai); }
     static Action* icc_sindragosa_blistering_cold(PlayerbotAI* ai) { return new IccSindragosaBlisteringColdAction(ai); }
     static Action* icc_sindragosa_unchained_magic(PlayerbotAI* ai) { return new IccSindragosaUnchainedMagicAction(ai); }
     static Action* icc_sindragosa_chilled_to_the_bone(PlayerbotAI* ai) { return new IccSindragosaChilledToTheBoneAction(ai); }

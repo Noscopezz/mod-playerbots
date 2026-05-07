@@ -789,6 +789,13 @@ float IccSindragosaMultiplier::GetValue(Action* action)
     Unit* boss = bot->FindNearestCreature(NPC_SINDRAGOSA, 200.0f);
     if (!boss)
         return 1.0f;
+
+    // HoT support is an instant cast that never moves the bot. Always allow so
+    // beaconed targets stay topped up across air phase, blistering cold cast,
+    // phase 3 tank lockdown, and other "everything else 0.0f" branches below.
+    if (dynamic_cast<IccSindragosaHotAction*>(action))
+        return 1.0f;
+
     Aura* aura = botAI->GetAura("Unchained Magic", bot, false, true);
 
     Difficulty diff = bot->GetRaidDifficulty();

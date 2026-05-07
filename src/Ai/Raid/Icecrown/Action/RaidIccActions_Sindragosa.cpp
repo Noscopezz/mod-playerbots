@@ -512,40 +512,42 @@ bool IccSindragosaFrostBeaconAction::HandleSupportActions()
         }
     }
 
-    // Healer support - Apply HoTs to beaconed players
-    if (botAI->IsHeal(bot) && !bot->HasAura(SPELL_FROST_BEACON))
+    return false;
+}
+
+bool IccSindragosaHotAction::Execute(Event /*event*/)
+{
+    if (!botAI->IsHeal(bot) || bot->HasAura(SPELL_FROST_BEACON))
+        return false;
+
+    auto const members = AI_VALUE(GuidVector, "group members");
+    for (auto const& memberGuid : members)
     {
-        auto const members = AI_VALUE(GuidVector, "group members");
-        for (auto const& memberGuid : members)
+        Unit* member = botAI->GetUnit(memberGuid);
+        if (!member || !member->IsAlive() || !member->HasAura(SPELL_FROST_BEACON))
+            continue;
+
+        if (member->HasAura(SPELL_ICE_TOMB))
+            continue;
+
+        uint32 spellId = 0;
+        switch (bot->getClass())
         {
-            Unit* member = botAI->GetUnit(memberGuid);
-            if (!member || !member->IsAlive() || !member->HasAura(SPELL_FROST_BEACON))
-            {
-                continue;
-            }
-
-            // Apply class-specific HoT spells
-            uint32 spellId = 0;
-            switch (bot->getClass())
-            {
-                case CLASS_PRIEST:
-                    spellId = 48068;
-                    break;  // Renew
-                case CLASS_SHAMAN:
-                    spellId = 61301;
-                    break;  // Riptide
-                case CLASS_DRUID:
-                    spellId = 48441;
-                    break;  // Rejuvenation
-                default:
-                    continue;
-            }
-
-            if (!member->HasAura(spellId))
-            {
-                botAI->CastSpell(spellId, member);
-            }
+            case CLASS_PRIEST:
+                spellId = 48068;  // Renew
+                break;
+            case CLASS_SHAMAN:
+                spellId = 61301;  // Riptide
+                break;
+            case CLASS_DRUID:
+                spellId = 48441;  // Rejuvenation
+                break;
+            default:
+                return false;
         }
+
+        if (!member->HasAura(spellId) && botAI->CanCastSpell(spellId, member))
+            botAI->CastSpell(spellId, member);
     }
 
     return false;
@@ -651,6 +653,7 @@ bool IccSindragosaFrostBeaconAction::HandleNonBeaconedPlayer(const Unit* boss)
             {
                 return MoveToPosition(safePosition);
             }
+
         }
         return botAI->IsHeal(bot);  // Continue for healers, wait for others
     }
@@ -927,6 +930,8 @@ bool IccSindragosaMysticBuffetAction::Execute(Event /*event*/)
 std::map<ObjectGuid, int> IccSindragosaFrostBombAction::s_groupAssignments;
 std::map<ObjectGuid, ObjectGuid> IccSindragosaFrostBombAction::s_tombAssignments;
 std::set<ObjectGuid> IccSindragosaFrostBombAction::s_freedFallback;
+std::map<ObjectGuid, IccSindragosaFrostBombAction::LastLosMove>
+    IccSindragosaFrostBombAction::s_lastLosMove;
 
 bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
 {
@@ -937,15 +942,9 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
     if (!group)
         return false;
 
-    // Entombed: bot is frozen and cannot move. Pin its group assignment to
-    // whichever zone it is tombed in so a freed bot doesn't get migrated to
-    // a far zone (which would have it walk straight into a frost bomb).
     if (bot->HasAura(SPELL_ICE_TOMB))
     {
         PinGroupToCurrentZone();
-        // Mark for fallback once freed: if our pinned zone has no tombs left,
-        // we should hide behind the nearest tomb anywhere instead of running
-        // back to the zone anchor (which could be on the other side of the arena).
         s_freedFallback.insert(bot->GetGUID());
         return false;
     }
@@ -977,6 +976,104 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
 
     std::vector<Unit*> myTombs = SelectTombs(ctx.tombs, groupIndex, groupCount);
 
+    bool myZoneAllProtected = false;
+    {
+        static constexpr std::array<uint8, 3> raidIcons = {7, 6, 0};
+        static constexpr float STRIP_HP_PCT = 30.0f;
+        bool const is10Man =
+            (diff == RAID_DIFFICULTY_10MAN_NORMAL || diff == RAID_DIFFICULTY_10MAN_HEROIC);
+        float const tombStopHpPct = is10Man ? 60.0f : 40.0f;
+
+        auto isMarked = [&](Unit* tomb) -> bool
+        {
+            for (uint8 const icon : raidIcons)
+                if (group->GetTargetIcon(icon) == tomb->GetGUID())
+                    return true;
+            return false;
+        };
+
+        bool anyAlive = false;
+        bool anyKillable = false;
+        for (Unit* tomb : myTombs)
+        {
+            if (!tomb || !tomb->IsAlive())
+                continue;
+            anyAlive = true;
+            bool const marked = isMarked(tomb);
+
+            if (!marked && tomb->GetHealthPct() < STRIP_HP_PCT)
+            {
+                Unit::AuraMap& auras = tomb->GetOwnedAuras();
+                for (Unit::AuraMap::iterator it = auras.begin(); it != auras.end();)
+                {
+                    Aura* aura = it->second;
+                    if (aura && aura->GetDuration() != -1)
+                    {
+                        tomb->RemoveOwnedAura(it);
+                        continue;
+                    }
+                    ++it;
+                }
+            }
+
+
+            (void)marked;
+            if (tomb->GetHealthPct() > tombStopHpPct)
+                anyKillable = true;
+        }
+
+        myZoneAllProtected = anyAlive && !anyKillable;
+
+        std::vector<Creature*> pets;
+        if (Pet* mainPet = bot->GetPet())
+            pets.push_back(mainPet);
+        for (Unit* controlled : bot->m_Controlled)
+        {
+            if (Creature* c = dynamic_cast<Creature*>(controlled))
+            {
+                if (std::find(pets.begin(), pets.end(), c) == pets.end())
+                    pets.push_back(c);
+            }
+        }
+
+        if (myZoneAllProtected)
+        {
+            for (Creature* pet : pets)
+            {
+                if (!pet || !pet->IsAlive())
+                    continue;
+                pet->SetReactState(REACT_PASSIVE);
+                pet->AttackStop();
+                pet->InterruptNonMeleeSpells(true);
+                pet->CombatStop();
+                pet->SetTarget(ObjectGuid::Empty);
+                if (CharmInfo* ci = pet->GetCharmInfo())
+                {
+                    ci->SetPlayerReactState(REACT_PASSIVE);
+                    pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST,
+                                                       pet->GetFollowAngle());
+                    ci->SetCommandState(COMMAND_FOLLOW);
+                    ci->SetIsCommandAttack(false);
+                    ci->SetIsAtStay(false);
+                    ci->SetIsReturning(true);
+                    ci->SetIsFollowing(true);
+                }
+            }
+        }
+        else
+        {
+            for (Creature* pet : pets)
+            {
+                if (pet && pet->IsAlive() && pet->GetReactState() == REACT_PASSIVE)
+                {
+                    pet->SetReactState(REACT_DEFENSIVE);
+                    if (CharmInfo* ci = pet->GetCharmInfo())
+                        ci->SetPlayerReactState(REACT_DEFENSIVE);
+                }
+            }
+        }
+    }
+
     // No tomb in zone
     if (myTombs.empty())
     {
@@ -1005,7 +1102,7 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
                 float const fbY = nearest->GetPositionY() + std::sin(fbAngle) * 6.5f;
                 float const fbZ = nearest->GetPositionZ();
 
-                if (bot->GetDistance2d(fbX, fbY) > 0.5f)
+                if (bot->GetDistance2d(fbX, fbY) > 0.1f)
                 {
                     botAI->Reset();
                     bot->AttackStop();
@@ -1036,18 +1133,65 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
 
     Unit* losTomb = ResolveStickyTomb(myTombs);
     if (!losTomb)
+    {
+        // LOS tomb died / lost mark mid-walk. If we recently issued an LOS
+        // move, replay it for up to 2 seconds so the bot finishes its path
+        // instead of freezing in the open until the next valid sticky tomb.
+        auto it = s_lastLosMove.find(bot->GetGUID());
+        if (it != s_lastLosMove.end())
+        {
+            uint32 const now = getMSTime();
+            if (getMSTimeDiff(it->second.timestampMs, now) <= 2000 &&
+                bot->GetDistance2d(it->second.x, it->second.y) > 0.1f)
+            {
+                botAI->Reset();
+                bot->AttackStop();
+                return MoveTo(bot->GetMapId(), it->second.x, it->second.y, it->second.z,
+                              false, false, false, true, MovementPriority::MOVEMENT_FORCED);
+            }
+            s_lastLosMove.erase(it);
+        }
         return false;
+    }
 
     float const angle = ctx.marker->GetAngle(losTomb);
     float const posX = losTomb->GetPositionX() + std::cos(angle) * 6.5f;
     float const posY = losTomb->GetPositionY() + std::sin(angle) * 6.5f;
     float const posZ = losTomb->GetPositionZ();
 
-    if (bot->GetDistance2d(posX, posY) > 0.5f)
+    float const losDist = bot->GetDistance2d(posX, posY);
+    if (losDist > 0.1f)
     {
         botAI->Reset();
         bot->AttackStop();
+        // Mark the tomb early (within 5yd) so the raid converges on the kill
+        // target while the bot is still walking the last few yards into LOS.
+        if (losDist <= 10.0f)
+            HandleRtiMarking(group, groupIndex, myTombs, losTomb);
+
+        // Stamp this LOS move so we can replay it for up to 2 seconds if the
+        // tomb dies/loses mark before we arrive.
+        LastLosMove& stamp = s_lastLosMove[bot->GetGUID()];
+        stamp.timestampMs = getMSTime();
+        stamp.x = posX;
+        stamp.y = posY;
+        stamp.z = posZ;
+
         return MoveTo(bot->GetMapId(), posX, posY, posZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED);
+    }
+
+    // Reached LOS spot — clear the replay stamp.
+    s_lastLosMove.erase(bot->GetGUID());
+
+    // Bot is parked at LOS spot. Face away from the LOS tomb only when our
+    // zone has no kill-candidates left (every remaining tomb is protected).
+    // While extras are still up, the bot must keep facing them so it can DPS.
+    if (myZoneAllProtected)
+    {
+        bot->AttackStop();
+        bot->InterruptNonMeleeSpells(true);
+        bot->SetTarget(ObjectGuid::Empty);
+        bot->SetFacingTo(losTomb->GetAngle(bot));
     }
 
     return HandleRtiMarking(group, groupIndex, myTombs, losTomb);
@@ -1229,13 +1373,10 @@ std::vector<Unit*> IccSindragosaFrostBombAction::SelectTombs(std::vector<Unit*> 
     int const zoneIdx = (groupCount == 2) ? (groupIndex == 0 ? 0 : 2) : groupIndex;
     Position const& zone = *tombZones[zoneIdx];
 
-    // Assign each tomb to the nearest zone anchor, then return only those
-    // assigned to this group's zone. This handles off-position spawns caused
-    // by beacons not reaching their anchor in time.
+    static constexpr float MAX_ZONE_RADIUS = 3.0f;
     std::vector<Unit*> zoneTombs;
     for (Unit* tomb : tombs)
     {
-        // Find which zone anchor is closest to this tomb
         int closestZone = 0;
         float closestDist = tomb->GetExactDist2d(*tombZones[0]);
         for (int z = 1; z < 3; ++z)
@@ -1250,8 +1391,11 @@ std::vector<Unit*> IccSindragosaFrostBombAction::SelectTombs(std::vector<Unit*> 
                 closestZone = z;
             }
         }
-        if (closestZone == zoneIdx)
-            zoneTombs.push_back(tomb);
+        if (closestZone != zoneIdx)
+            continue;
+        if (closestDist > MAX_ZONE_RADIUS)
+            continue;
+        zoneTombs.push_back(tomb);
     }
     return zoneTombs;
 }
@@ -1319,11 +1463,6 @@ bool IccSindragosaFrostBombAction::HandleRtiMarking(Group* group, int groupIndex
 
     context->GetValue<std::string>("rti")->Set(rtiValue);
 
-    // Goal: leave only ONE tomb alive per group (the sticky LOS tomb).
-    // Kill any extras to full first, then DPS the sticky down to TOMB_STOP_HP_PCT.
-    // Selection must be stable across bots in the same group — every bot in
-    // the group must converge on the same target, otherwise they race and the
-    // icon flips between tombs each tick.
     Unit* currentIconUnit = botAI->GetUnit(group->GetTargetIcon(iconIndex));
 
     Unit* tombToMark = nullptr;
@@ -1377,9 +1516,6 @@ bool IccSindragosaFrostBombAction::HandleRtiMarking(Group* group, int groupIndex
         return true;
     }
 
-    // Every bot in the group maintains the icon — place it if missing or stale.
-    // SetTargetIcon is idempotent when the target hasn't changed, so redundant
-    // calls from multiple bots in the same tick are harmless.
     if (!currentIconUnit || !currentIconUnit->IsAlive() || currentIconUnit != tombToMark)
         group->SetTargetIcon(iconIndex, bot->GetGUID(), tombToMark->GetGUID());
 

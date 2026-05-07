@@ -697,6 +697,13 @@ public:
     static constexpr uint32 FLARE_ITEM_COOLDOWN_MS = 1000;
 };
 
+class IccSindragosaHotAction : public Action
+{
+public:
+    IccSindragosaHotAction(PlayerbotAI* botAI) : Action(botAI, "icc sindragosa hot") {}
+    bool Execute(Event event) override;
+};
+
 class IccSindragosaBlisteringColdAction : public MovementAction
 {
 public:
@@ -751,6 +758,18 @@ private:
     static std::map<ObjectGuid, int> s_groupAssignments;
     static std::map<ObjectGuid, ObjectGuid> s_tombAssignments;
     static std::set<ObjectGuid> s_freedFallback;
+
+    // Per-bot last LOS move stamp. When the LOS tomb dies/loses mark mid-walk
+    // the bot would otherwise freeze in the open. Replaying the last move for
+    // up to 2 seconds keeps it on its path until a new LOS target is chosen.
+    struct LastLosMove
+    {
+        uint32 timestampMs = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+    };
+    static std::map<ObjectGuid, LastLosMove> s_lastLosMove;
 };
 
 class IccSindragosaTankSwapPositionAction : public AttackAction

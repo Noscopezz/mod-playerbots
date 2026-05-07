@@ -588,6 +588,13 @@ public:
     bool IsActive() override;
 };
 
+class IccSindragosaHotTrigger : public Trigger
+{
+public:
+    IccSindragosaHotTrigger(PlayerbotAI* botAI) : Trigger(botAI, "icc sindragosa hot") {}
+    bool IsActive() override;
+};
+
 class IccSindragosaBlisteringColdTrigger : public Trigger
 {
 public:
