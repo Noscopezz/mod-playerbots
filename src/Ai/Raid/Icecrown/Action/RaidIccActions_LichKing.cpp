@@ -527,6 +527,111 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
     // Teleport back onto the platform if the engine pushed us through
     FixPlatformPosition();
 
+    // Staging during Remorseless Winter cast: non-tanks converge on ONE shared
+    // safe vile spirit anchor and hold for 4s before falling through to the
+    // final-spot logic. The chosen anchor is locked-in on first detection of
+    // the cast so all bots agree even if defile state shifts mid-cast.
+    // Among safe slots VILE_SPIRIT1 and VILE_SPIRIT3, picks
+    // the one closest to the group centroid; VILE_SPIRIT2 is fallback only.
+    struct WinterStageState
+    {
+        uint32 startMs;
+        Position const* pos;
+    };
+    static std::map<ObjectGuid, WinterStageState> s_winterStage;
+
+    bool const bossCastingWinter = boss->HasUnitState(UNIT_STATE_CASTING) &&
+        (boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER1) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER2) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER3) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER4) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER5) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER6) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER7) ||
+         boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER8));
+
+    static constexpr uint32 STAGE_DURATION_MS = 4000;
+
+    // Enter staging block if boss is casting Winter OR a staging entry exists
+    // that hasn't yet expired. The cast ends before the aura applies, so we
+    // can't rely on bossCastingWinter staying true for the full window.
+    uint32 const now = getMSTime();
+    auto winterIt = s_winterStage.find(boss->GetGUID());
+    bool const stageActive = winterIt != s_winterStage.end() &&
+                             getMSTimeDiff(winterIt->second.startMs, now) < STAGE_DURATION_MS;
+
+    if (!botAI->IsTank(bot) && (bossCastingWinter || stageActive))
+    {
+        if (winterIt == s_winterStage.end())
+        {
+            Position const* candidates[2] = {&ICC_LK_VILE_SPIRIT1_POSITION,
+                                             &ICC_LK_VILE_SPIRIT3_POSITION};
+            Position const centroid = ComputeGroupCentroid(bot);
+
+            Position const* chosen = nullptr;
+            float bestDist = std::numeric_limits<float>::max();
+            for (Position const* slot : candidates)
+            {
+                if (!IsPositionSafeFromDefile(slot->GetPositionX(), slot->GetPositionY(),
+                                              PLATFORM_Z, 3.0f))
+                    continue;
+
+                float const d = std::hypot(centroid.GetPositionX() - slot->GetPositionX(),
+                                           centroid.GetPositionY() - slot->GetPositionY());
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    chosen = slot;
+                }
+            }
+
+            if (!chosen &&
+                IsPositionSafeFromDefile(ICC_LK_VILE_SPIRIT2_POSITION.GetPositionX(),
+                                         ICC_LK_VILE_SPIRIT2_POSITION.GetPositionY(),
+                                         PLATFORM_Z, 3.0f))
+                chosen = &ICC_LK_VILE_SPIRIT2_POSITION;
+
+            winterIt = s_winterStage.emplace(boss->GetGUID(), WinterStageState{now, chosen}).first;
+        }
+
+        uint32 const elapsed = getMSTimeDiff(winterIt->second.startMs, now);
+        Position const* stagePos = winterIt->second.pos;
+
+        if (stagePos && elapsed < STAGE_DURATION_MS)
+        {
+            static constexpr float STAGE_TOLERANCE = 3.0f;
+            static std::map<ObjectGuid, bool> s_stageInbound;
+            float const dist = bot->GetDistance2d(stagePos->GetPositionX(), stagePos->GetPositionY());
+            if (dist > STAGE_TOLERANCE)
+            {
+                if (!s_stageInbound[bot->GetGUID()])
+                {
+                    bot->AttackStop();
+                    bot->InterruptNonMeleeSpells(true);
+                    bot->SetTarget(ObjectGuid::Empty);
+                    context->GetValue<Unit*>("current target")->Set(nullptr);
+                    botAI->Reset();
+                    s_stageInbound[bot->GetGUID()] = true;
+                }
+                TryMoveToPosition(stagePos->GetPositionX(), stagePos->GetPositionY(), PLATFORM_Z, true);
+            }
+            else
+            {
+                s_stageInbound[bot->GetGUID()] = false;
+                bot->StopMoving();
+            }
+            return true;
+        }
+    }
+    else if (!bossCastingWinter && !stageActive)
+    {
+        // Only clear when no staging window is active (timer expired AND not
+        // re-casting). This keeps the staging entry alive across the brief
+        // gap between cast end and aura application, and prevents tanks from
+        // wiping the entry mid-staging (tanks always hit this branch).
+        s_winterStage.erase(boss->GetGUID());
+    }
+
     // Defile evacuation has absolute priority over everything else
     if (!IsPositionSafeFromDefile(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 3.0f))
     {
@@ -568,12 +673,14 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
         HandleTankPositioning();
     else if (!botAI->IsRanged(bot))
     {
-        // Non-tank melee: go to melee position if no shamblings exist,
-        // or if a shambling is within 5y of the main tank.
-        // Otherwise wait at ranged.
+        // Non-tank melee:
+        //   - Add (shambling/spirit) within 5y of MT: flank it.
+        //   - No add near MT: wait at midpoint between melee and ranged
+        //     anchors — staying close enough to engage when an add lands on
+        //     MT, far enough not to eat shambling frontals on stragglers.
+        // Never pulled to MT/melee anchor.
         Unit* mainTank = AI_VALUE(Unit*, "main tank");
-        bool anyShambling = false;
-        bool shamblingNearTank = false;
+        bool addNearTank = false;
 
         if (mainTank && mainTank->IsAlive())
         {
@@ -583,22 +690,30 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
                 Unit* add = botAI->GetUnit(guid);
                 if (!add || !add->IsAlive())
                     continue;
-                if (!IsLkShambling(add->GetEntry()))
+                if (!IsLkShambling(add->GetEntry()) && !IsLkRagingSpirit(add->GetEntry()))
                     continue;
-                anyShambling = true;
                 if (add->GetDistance2d(mainTank) <= 5.0f)
                 {
-                    shamblingNearTank = true;
+                    addNearTank = true;
                     break;
                 }
             }
         }
 
-        if (!anyShambling || shamblingNearTank)
+        if (addNearTank)
             HandleMeleePositioning();
         else
         {
-            HandleRangedPositioning();
+            Position const& meleePos  = *GetMainTankPosition();
+            Position const& rangedPos = *GetMainTankRangedPosition();
+            float const midX = (meleePos.GetPositionX() + rangedPos.GetPositionX()) * 0.5f;
+            float const midY = (meleePos.GetPositionY() + rangedPos.GetPositionY()) * 0.5f;
+
+            static constexpr float MID_TOLERANCE = 2.0f;
+            if (bot->GetDistance2d(midX, midY) > MID_TOLERANCE)
+                TryMoveToPosition(midX, midY, PLATFORM_Z, true);
+            else
+                bot->StopMoving();
             return false;
         }
     }
@@ -857,11 +972,13 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
     }
 
     // No defile nearby — safe to move directly to the target.
-    // If not in LOS, JumpTo instead to avoid getting stuck.
+
     if (bot->IsWithinLOS(targetX, targetY, targetZ))
+    {
+        botAI->Reset();
         MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
-    else
-        JumpTo(bot->GetMapId(), targetX, targetY, targetZ, MovementPriority::MOVEMENT_FORCED);
+    }
+    
     return false;
 }
 
@@ -883,13 +1000,24 @@ bool IccLichKingWinterAction::HandleTankPositioning()
     if (botAI->IsMainTank(bot))
     {
         float const dist = bot->GetDistance2d(frostPos.GetPositionX(), frostPos.GetPositionY());
+        static std::map<ObjectGuid, bool> s_mtInbound;
 
         if (dist > FROST_AT_POS_TOLERANCE)
         {
+            if (!s_mtInbound[bot->GetGUID()])
+            {
+                bot->AttackStop();
+                bot->InterruptNonMeleeSpells(true);
+                bot->SetTarget(ObjectGuid::Empty);
+                context->GetValue<Unit*>("current target")->Set(nullptr);
+                botAI->Reset();
+                s_mtInbound[bot->GetGUID()] = true;
+            }
             TryMoveToPosition(frostPos.GetPositionX(), frostPos.GetPositionY(), PLATFORM_Z, true);
             return false;
         }
 
+        s_mtInbound[bot->GetGUID()] = false;
         return HandleMainTankAddManagement(boss, &frostPos);
     }
 
@@ -901,8 +1029,6 @@ bool IccLichKingWinterAction::HandleTankPositioning()
 
 bool IccLichKingWinterAction::HandleMeleePositioning()
 {
-    Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
-
     // Frost engagement zone: bots within MELEE_FLANK_RADIUS of the frost anchor
     // are considered "engaged" and trusted to flank. Outside, they're inbound
     // and may need to wait at the ranged anchor for MT to gain control.
@@ -951,32 +1077,38 @@ bool IccLichKingWinterAction::HandleMeleePositioning()
         }
     }
 
-    // Re-anchor only when bot has drifted outside the engagement zone.
-    // Inside the zone, flank logic owns positioning — no anchor re-snap.
-    if (distToPos > MELEE_FLANK_RADIUS)
+    // No re-anchor to tank position: flanking owns positioning. Pulling melee
+    // toward MT during winter puts bots in front of shamblings (frontal cone).
+
+    // Only adds within MT_ADD_RANGE of the main tank are valid melee targets.
+    // Adds further out are not under tank control — engaging them puts bots
+    // in front of unrooted shamblings.
+    static constexpr float MT_ADD_RANGE = 5.0f;
+    Unit* mainTank = AI_VALUE(Unit*, "main tank");
+
+    auto addNearMT = [&](Unit* add) -> bool
     {
-        bool const latePhase = boss && !boss->HealthAbovePct(50);
-        float const offsetX = latePhase ? 0.0f : -5.0f;
-        float const offsetY = latePhase ? 0.0f : 5.0f;
-        TryMoveToPosition(tankPos.GetPositionX() + offsetX, tankPos.GetPositionY() + offsetY, PLATFORM_Z, true);
-    }
+        return mainTank && mainTank->IsAlive() && add &&
+               add->GetDistance2d(mainTank) <= MT_ADD_RANGE;
+    };
 
     // Acquire a valid add target
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
     if (!currentTarget || !currentTarget->IsAlive() ||
-        !IsLkCollectibleAdd(currentTarget) || IsIceSphere(currentTarget->GetEntry()))
+        !IsLkCollectibleAdd(currentTarget) || IsIceSphere(currentTarget->GetEntry()) ||
+        !addNearMT(currentTarget))
     {
         Unit* newTarget = nullptr;
 
-        // Priority: skull-marked target
+        // Priority: skull-marked target (only if near MT)
         if (Group* group = bot->GetGroup())
         {
             Unit* skull = botAI->GetUnit(group->GetTargetIcon(7));
-            if (skull && skull->IsAlive() && IsLkCollectibleAdd(skull))
+            if (skull && skull->IsAlive() && IsLkCollectibleAdd(skull) && addNearMT(skull))
                 newTarget = skull;
         }
 
-        // Fallback: nearest valid add
+        // Fallback: nearest valid add within MT range
         if (!newTarget)
         {
             GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
@@ -986,6 +1118,8 @@ bool IccLichKingWinterAction::HandleMeleePositioning()
             {
                 Unit* add = botAI->GetUnit(guid);
                 if (!IsLkCollectibleAdd(add))
+                    continue;
+                if (!addNearMT(add))
                     continue;
 
                 float const d = bot->GetDistance(add);
@@ -1011,7 +1145,6 @@ bool IccLichKingWinterAction::HandleMeleePositioning()
     static constexpr float FLANK_SETTLE_DIST = 2.0f;
 
     // Position behind the current melee target using mainTank→add vector
-    Unit* mainTank = AI_VALUE(Unit*, "main tank");
     if (mainTank && mainTank->IsAlive())
     {
         float const vecX = currentTarget->GetPositionX() - mainTank->GetPositionX();
@@ -1115,9 +1248,31 @@ bool IccLichKingWinterAction::HandleRangedPositioning()
         return false;
     }
 
-    // Move to ranged frost position
-    if (bot->GetDistance2d(targetPos.GetPositionX(), targetPos.GetPositionY()) > 2.0f)
+    // Move to ranged frost position. Clear target + reset only on the FIRST
+    // tick of the inbound phase — otherwise we cancel the bot's own movement
+    // every tick and it ends up walking 1y per cycle.
+    static std::map<ObjectGuid, bool> s_rangedInbound;
+    bool const farFromAnchor =
+        bot->GetDistance2d(targetPos.GetPositionX(), targetPos.GetPositionY()) > 2.0f;
+
+    if (farFromAnchor)
+    {
+        bool const wasInbound = s_rangedInbound[bot->GetGUID()];
+        if (!wasInbound)
+        {
+            bot->AttackStop();
+            bot->InterruptNonMeleeSpells(true);
+            bot->SetTarget(ObjectGuid::Empty);
+            context->GetValue<Unit*>("current target")->Set(nullptr);
+            botAI->Reset();
+            s_rangedInbound[bot->GetGUID()] = true;
+        }
         TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, true);
+        // Skip target acquisition while inbound — Attack() would cancel movement.
+        return false;
+    }
+
+    s_rangedInbound[bot->GetGUID()] = false;
 
     if (!botAI->IsRangedDps(bot))
         return false;
@@ -1485,6 +1640,7 @@ bool IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
                                                    frostPos->GetPositionY());
     if (distToFrost > FROST_TOL)
     {
+        botAI->Reset();
         TryMoveToPosition(frostPos->GetPositionX(), frostPos->GetPositionY(), PLATFORM_Z, true);
 
         Unit* cur = bot->GetVictim();
@@ -1562,7 +1718,10 @@ bool IccLichKingWinterAction::HandleAssistTankAddManagement(Unit* boss, Position
     bot->SetTarget(targetAdd->GetGUID());
 
     if (closestDist > MELE_RANGE)
+    {
+        botAI->Reset();
         TryMoveToPosition(targetAdd->GetPositionX(), targetAdd->GetPositionY(), PLATFORM_Z, false);
+    }
     else
     {
         bot->SetFacingToObject(targetAdd);
@@ -1902,13 +2061,37 @@ bool IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
     static constexpr float SPIRIT_Z_TOLERANCE = 5.0f;
 
     // Normal mode: snap back if teleported far outside the encounter area
+    // (Harvest Soul victim exits Frostmourne room). Land on the main tank,
+    // falling back to assist tank, then the fixed adds anchor.
     if (!IsHeroicLk(diff) && std::abs(bot->GetPositionY() - (-2095.7915f)) > MAX_Y_DRIFT)
     {
-        bot->TeleportTo(bot->GetMapId(),
-                        ICC_LICH_KING_ADDS_POSITION.GetPositionX(),
-                        ICC_LICH_KING_ADDS_POSITION.GetPositionY(),
-                        ICC_LICH_KING_ADDS_POSITION.GetPositionZ(),
-                        bot->GetOrientation());
+        Unit* mainTank = AI_VALUE(Unit*, "main tank");
+        Unit* assistTank = nullptr;
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+            {
+                Player* member = itr->GetSource();
+                if (member && member->IsAlive() && botAI->IsAssistTank(member))
+                {
+                    assistTank = member;
+                    break;
+                }
+            }
+        }
+        Unit* anchor = (mainTank && mainTank->IsAlive())
+            ? mainTank
+            : assistTank;
+
+        if (anchor)
+            bot->TeleportTo(bot->GetMapId(), anchor->GetPositionX(), anchor->GetPositionY(),
+                            anchor->GetPositionZ(), bot->GetOrientation());
+        else
+            bot->TeleportTo(bot->GetMapId(),
+                            ICC_LICH_KING_ADDS_POSITION.GetPositionX(),
+                            ICC_LICH_KING_ADDS_POSITION.GetPositionY(),
+                            ICC_LICH_KING_ADDS_POSITION.GetPositionZ(),
+                            bot->GetOrientation());
         return true;
     }
 
@@ -3147,25 +3330,40 @@ bool IccLichKingAddsAction::HandleCenterStacking(Unit* boss, Difficulty diff)
             return true;
         };
 
+        // Among safe slots (0 and 2), pick the one closest to the group
+        // centroid. Centroid is identical for every bot in the raid so all
+        // bots converge on the same anchor. Cached per boss GUID for 2s to
+        // dampen flicker if defile state shifts between ticks.
+        struct StackChoice { uint32 evaluatedMs; int slotIdx; };
+        static std::map<ObjectGuid, StackChoice> s_stackChoice;
+        static constexpr uint32 STACK_CHOICE_TTL_MS = 2000;
+
+        uint32 const now = getMSTime();
         int chosen = -1;
-        float bestDist = std::numeric_limits<float>::max();
-        for (int i = 0; i < 3; ++i)
+        auto cacheIt = s_stackChoice.find(boss->GetGUID());
+        if (cacheIt != s_stackChoice.end() &&
+            getMSTimeDiff(cacheIt->second.evaluatedMs, now) < STACK_CHOICE_TTL_MS)
         {
-            // Only consider slots 0 and 2
-            if (i == 1)
-                continue;
-
-            // Skip unsafe candidate slots
-            if (!IsSlotSafe(slots[i]))
-                continue;
-
-            float const d = std::hypot(bot->GetPositionX() - slots[i].GetPositionX(),
-                                       bot->GetPositionY() - slots[i].GetPositionY());
-            if (d < bestDist)
+            chosen = cacheIt->second.slotIdx;
+        }
+        else
+        {
+            Position const centroid = ComputeGroupCentroid(bot);
+            float bestDist = std::numeric_limits<float>::max();
+            for (int const i : {0, 2})
             {
-                bestDist = d;
-                chosen = i;
+                if (!IsSlotSafe(slots[i]))
+                    continue;
+
+                float const d = std::hypot(centroid.GetPositionX() - slots[i].GetPositionX(),
+                                           centroid.GetPositionY() - slots[i].GetPositionY());
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    chosen = i;
+                }
             }
+            s_stackChoice[boss->GetGUID()] = {now, chosen};
         }
 
         if (chosen < 0)
@@ -3895,12 +4093,31 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
         }
     }
 
-    if (!botAI->IsTank(bot))
+    // Skip the spirit-flee logic entirely if boss is casting Harvest Soul(s).
+    // The harvested player must stay alive — flee movement breaks range for
+    // healers and gets the soul victim killed, buffing LK and wiping raid.
+    Unit* Boss = AI_VALUE2(Unit*, "find target", "the lich king");
+    bool const bossCastingHarvest = Boss && Boss->HasUnitState(UNIT_STATE_CASTING) &&
+        (Boss->FindCurrentSpellBySpellId(SPELL_HARVEST_SOUL_LK) ||
+         Boss->FindCurrentSpellBySpellId(SPELL_HARVEST_SOULS_LK_25) ||
+         Boss->FindCurrentSpellBySpellId(SPELL_HARVEST_SOULS_LK_H1) ||
+         Boss->FindCurrentSpellBySpellId(SPELL_HARVEST_SOULS_LK_H2) ||
+         Boss->FindCurrentSpellBySpellId(SPELL_HARVEST_SOULS_LK_H3));
+
+    if (!botAI->IsTank(bot) && !bossCastingHarvest)
     {
+        // Flee to MT if a spirit is targeting this bot OR is within FLEE_RANGE.
+        // Either condition is enough — proximity catches spirits that haven't
+        // committed a target yet, targeting catches faraway chasers.
+        static constexpr float FLEE_RANGE = 15.0f;
+
         Unit* chaser = nullptr;
         for (Unit* spirit : spirits)
         {
-            if (spirit->GetVictim() && spirit->GetVictim()->GetGUID() == bot->GetGUID())
+            bool const isTargetingBot = spirit->GetVictim() &&
+                                        spirit->GetVictim()->GetGUID() == bot->GetGUID();
+            bool const isClose = bot->GetDistance2d(spirit) < FLEE_RANGE;
+            if (isTargetingBot || isClose)
             {
                 chaser = spirit;
                 break;

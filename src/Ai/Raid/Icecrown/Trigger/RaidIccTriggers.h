@@ -237,7 +237,12 @@ enum SpellIdsICC
     SPELL_REMORSELESS_WINTER6           = 74270,
     SPELL_REMORSELESS_WINTER7           = 74271,
     SPELL_REMORSELESS_WINTER8           = 74272,
-    SPELL_VALKYR_CARRY                  = 30440, // slow fall aura for edge-dive mechanic
+    SPELL_VALKYR_CARRY                  = 30440,
+    SPELL_HARVEST_SOUL_LK               = 68980,
+    SPELL_HARVEST_SOULS_LK_25           = 73654,
+    SPELL_HARVEST_SOULS_LK_H1           = 74295,
+    SPELL_HARVEST_SOULS_LK_H2           = 74296,
+    SPELL_HARVEST_SOULS_LK_H3           = 74297,
 };
 
 inline constexpr uint32 DEFILE_AURAS[]         = {72756, 74162, 74163, 74164};

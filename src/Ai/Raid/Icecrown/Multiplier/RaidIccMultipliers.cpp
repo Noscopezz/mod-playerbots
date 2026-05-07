@@ -1111,6 +1111,16 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
         if (dynamic_cast<IccLichKingWinterAction*>(action) || dynamic_cast<SetFacingTargetAction*>(action))
             return 1.0f;
 
+        // Staging window: while boss is casting Winter, non-tanks must commit
+        // to the staging move. Only heals are allowed; everything else blocked.
+        if (isCastingWinter() && !botAI->IsTank(bot))
+        {
+            if (dynamic_cast<HealPartyMemberAction*>(action) ||
+                dynamic_cast<ReachPartyMemberToHealAction*>(action))
+                return 1.0f;
+            return 0.0f;
+        }
+
         // Adds action is suppressed during winter
         if (dynamic_cast<IccLichKingAddsAction*>(action))
             return 0.0f;
