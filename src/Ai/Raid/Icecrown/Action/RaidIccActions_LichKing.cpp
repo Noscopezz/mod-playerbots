@@ -4106,16 +4106,10 @@ bool IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
                 return botAI->CastSpell("Bash", valkyr);
             if (!botAI->HasAura("Maim", valkyr) && botAI->CanCastSpell("Maim", valkyr))
                 return botAI->CastSpell("Maim", valkyr);
-            if (!botAI->HasAura("Infected Wounds", valkyr) && botAI->CanCastSpell("Infected Wounds", valkyr))
-                return botAI->CastSpell("Infected Wounds", valkyr);
-            if (!botAI->HasAura("Faerie Fire", valkyr) && botAI->CanCastSpell("Faerie Fire", valkyr))
-                return botAI->CastSpell("Faerie Fire", valkyr);
             break;
         case CLASS_PALADIN:
             if (!botAI->HasAura("Hammer of Justice", valkyr) && botAI->CanCastSpell("Hammer of Justice", valkyr))
                 return botAI->CastSpell("Hammer of Justice", valkyr);
-            if (!botAI->HasAura("Judgements of the Just", valkyr) && botAI->CanCastSpell("Judgements of the Just", valkyr))
-                return botAI->CastSpell("Judgements of the Just", valkyr);
             break;
         case CLASS_WARRIOR:
             if (!botAI->HasAura("Concussion Blow", valkyr) && botAI->CanCastSpell("Concussion Blow", valkyr))
@@ -4138,24 +4132,16 @@ bool IccLichKingAddsAction::ApplyCCToValkyr(Unit* valkyr)
                 return botAI->CastSpell("Concussive Shot", valkyr);
             if (!botAI->HasAura("Wing Clip", valkyr) && botAI->CanCastSpell("Wing Clip", valkyr))
                 return botAI->CastSpell("Wing Clip", valkyr);
-            if (!botAI->HasAura("Entrapment", valkyr) && botAI->CanCastSpell("Entrapment", valkyr))
-                return botAI->CastSpell("Entrapment", valkyr);
             if (!botAI->HasAura("Freezing Trap", valkyr) && botAI->CanCastSpell("Freezing Trap", valkyr))
                 return botAI->CastSpell("Freezing Trap", valkyr);
-            if (!botAI->HasAura("Frost Trap", valkyr) && botAI->CanCastSpell("Frost Trap", valkyr))
-                return botAI->CastSpell("Frost Trap", valkyr);
             break;
         case CLASS_ROGUE:
-            if (!botAI->HasAura("Cheap Shot", valkyr) && botAI->CanCastSpell("Cheap Shot", valkyr))
-                return botAI->CastSpell("Cheap Shot", valkyr);
             if (!botAI->HasAura("Kidney Shot", valkyr) && botAI->CanCastSpell("Kidney Shot", valkyr))
                 return botAI->CastSpell("Kidney Shot", valkyr);
             if (!botAI->HasAura("Gouge", valkyr) && botAI->CanCastSpell("Gouge", valkyr))
                 return botAI->CastSpell("Gouge", valkyr);
             if (!botAI->HasAura("Blind", valkyr) && botAI->CanCastSpell("Blind", valkyr))
                 return botAI->CastSpell("Blind", valkyr);
-            if (!botAI->HasAura("Crippling Poison", valkyr) && botAI->CanCastSpell("Crippling Poison", valkyr))
-                return botAI->CastSpell("Crippling Poison", valkyr);
             if (!botAI->HasAura("Deadly Throw", valkyr) && botAI->CanCastSpell("Deadly Throw", valkyr))
                 return botAI->CastSpell("Deadly Throw", valkyr);
             break;
