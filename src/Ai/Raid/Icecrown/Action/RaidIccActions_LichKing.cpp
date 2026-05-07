@@ -978,7 +978,7 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
         botAI->Reset();
         MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, MovementPriority::MOVEMENT_FORCED, true, false);
     }
-    
+
     return false;
 }
 
