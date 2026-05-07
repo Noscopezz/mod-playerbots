@@ -1015,8 +1015,6 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
                     ++it;
                 }
             }
-
-
             (void)marked;
             if (tomb->GetHealthPct() > tombStopHpPct)
                 anyKillable = true;
