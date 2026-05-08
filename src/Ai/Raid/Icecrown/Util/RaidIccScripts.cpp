@@ -9,7 +9,7 @@
 
 namespace IcecrownHelpers
 {
-    std::vector<MalleableGooImpact> malleableGooImpacts;
+    std::unordered_map<uint32, std::vector<MalleableGooImpact>> malleableGooImpacts;
     std::map<ObjectGuid, uint32> festergutGooWaitUntil;
     DefileCastInfo defileCast;
     VileGasVictim rotfaceVileGas;
@@ -44,16 +44,17 @@ public:
         IcecrownHelpers::MalleableGooImpact impact;
         impact.position = target->GetPosition();
         impact.castTime = now;
-        IcecrownHelpers::malleableGooImpacts.push_back(impact);
+
+        auto& impacts = IcecrownHelpers::malleableGooImpacts[caster->GetMap()->GetInstanceId()];
+        impacts.push_back(impact);
 
         // Evict stale entries to keep the list bounded. Retention covers the
         // longest consumer window (Festergut avoid: 8s) + slack.
-        IcecrownHelpers::malleableGooImpacts.erase(
-            std::remove_if(IcecrownHelpers::malleableGooImpacts.begin(),
-                           IcecrownHelpers::malleableGooImpacts.end(),
+        impacts.erase(
+            std::remove_if(impacts.begin(), impacts.end(),
                            [now](IcecrownHelpers::MalleableGooImpact const& i)
                            { return getMSTimeDiff(i.castTime, now) > 9000; }),
-            IcecrownHelpers::malleableGooImpacts.end());
+            impacts.end());
     }
 };
 

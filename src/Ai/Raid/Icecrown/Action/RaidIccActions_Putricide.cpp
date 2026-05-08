@@ -1113,16 +1113,20 @@ bool IccPutricideAvoidMalleableGooAction::Execute(Event /*event*/)
         std::vector<Position> goos;
         goos.reserve(4);
         bool botInDanger = false;
-        for (auto const& impact : IcecrownHelpers::malleableGooImpacts)
+        auto impactIt = IcecrownHelpers::malleableGooImpacts.find(bot->GetMap()->GetInstanceId());
+        if (impactIt != IcecrownHelpers::malleableGooImpacts.end())
         {
-            if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
-                continue;
-            goos.push_back(impact.position);
+            for (auto const& impact : impactIt->second)
+            {
+                if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
+                    continue;
+                goos.push_back(impact.position);
 
-            float dx = botX - impact.position.GetPositionX();
-            float dy = botY - impact.position.GetPositionY();
-            if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
-                botInDanger = true;
+                float dx = botX - impact.position.GetPositionX();
+                float dy = botY - impact.position.GetPositionY();
+                if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
+                    botInDanger = true;
+            }
         }
 
         if (botInDanger)

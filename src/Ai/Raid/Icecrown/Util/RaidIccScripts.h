@@ -2,6 +2,7 @@
 #define _PLAYERBOT_RAIDICCSCRIPTS_H
 
 #include <map>
+#include <unordered_map>
 #include <vector>
 #include "ObjectGuid.h"
 #include "Position.h"
@@ -19,7 +20,7 @@ namespace IcecrownHelpers
         Position position;
         uint32 castTime;
     };
-    extern std::vector<MalleableGooImpact> malleableGooImpacts;
+    extern std::unordered_map<uint32, std::vector<MalleableGooImpact>> malleableGooImpacts;
 
     // Festergut avoid-malleable-goo wait state. When a bot dodges goo we stamp
     // a wait-until timestamp here so the trigger stays active and movement is

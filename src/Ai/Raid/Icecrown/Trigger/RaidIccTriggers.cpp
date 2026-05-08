@@ -258,21 +258,25 @@ bool IccFestergutAvoidMalleableGooTrigger::IsActive()
     float botY = bot->GetPositionY();
     ObjectGuid botGuid = bot->GetGUID();
 
-    for (auto const& impact : IcecrownHelpers::malleableGooImpacts)
+    auto impactIt = IcecrownHelpers::malleableGooImpacts.find(bot->GetMap()->GetInstanceId());
+    if (impactIt != IcecrownHelpers::malleableGooImpacts.end())
     {
-        if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
-            continue;
-        float dx = botX - impact.position.GetPositionX();
-        float dy = botY - impact.position.GetPositionY();
-        if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
+        for (auto const& impact : impactIt->second)
         {
-            // Lock bot into wait mode until this impact expires - prevents
-            // group-position from yanking it back into the danger zone.
-            uint32 waitUntil = impact.castTime + impactLifetimeMs;
-            auto& slot = IcecrownHelpers::festergutGooWaitUntil[botGuid];
-            if (waitUntil > slot)
-                slot = waitUntil;
-            return true;
+            if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
+                continue;
+            float dx = botX - impact.position.GetPositionX();
+            float dy = botY - impact.position.GetPositionY();
+            if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
+            {
+                // Lock bot into wait mode until this impact expires - prevents
+                // group-position from yanking it back into the danger zone.
+                uint32 waitUntil = impact.castTime + impactLifetimeMs;
+                auto& slot = IcecrownHelpers::festergutGooWaitUntil[botGuid];
+                if (waitUntil > slot)
+                    slot = waitUntil;
+                return true;
+            }
         }
     }
 

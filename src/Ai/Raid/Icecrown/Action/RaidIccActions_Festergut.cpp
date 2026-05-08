@@ -10,6 +10,7 @@
 #include "RtiValue.h"
 #include "Vehicle.h"
 #include <limits>
+#include <unordered_map>
 
 // Festergut
 bool IccFestergutGroupPositionAction::Execute(Event /*event*/)
@@ -101,6 +102,17 @@ bool IccFestergutGroupPositionAction::Execute(Event /*event*/)
     // Check for spores in the group
     if (HasSporesInGroup())
         return false;
+
+    // No spore, no goo dodge - melee stack on main tank.
+    if (botAI->IsMelee(bot))
+    {
+        Unit* mainTank = AI_VALUE(Unit*, "main tank");
+        if (mainTank && bot->GetExactDist2d(mainTank) > 3.0f)
+            return MoveTo(bot->GetMapId(), mainTank->GetPositionX(), mainTank->GetPositionY(),
+                          mainTank->GetPositionZ(), false, false, false, true,
+                          MovementPriority::MOVEMENT_NORMAL);
+        return false;
+    }
 
     // Position non-tank ranged and healers
     return PositionNonTankMembers();
@@ -284,29 +296,35 @@ Position IccFestergutSporeAction::CalculateSpreadPosition()
     // pulled back into the danger zone when the goo expires. The action only
     // runs while the spore trigger is active, so a gap >2s between calls
     // means the cycle ended - reset to the primary slot for the next cycle.
-    static uint32 s_lastCallMs = 0;
-    static int s_currentSlot = 1;
+    // State is keyed by instance ID so concurrent ICC raids don't share slots.
+    struct SpreadSlotState { uint32 lastCallMs = 0; int currentSlot = 1; };
+    static std::unordered_map<uint32, SpreadSlotState> s_slotState;
+    SpreadSlotState& state = s_slotState[bot->GetMap()->GetInstanceId()];
 
     uint32 now = getMSTime();
-    if (s_lastCallMs == 0 || now - s_lastCallMs > cycleIdleResetMs)
-        s_currentSlot = 1;
-    s_lastCallMs = now;
+    if (state.lastCallMs == 0 || now - state.lastCallMs > cycleIdleResetMs)
+        state.currentSlot = 1;
+    state.lastCallMs = now;
 
-    Position currentSpot = (s_currentSlot == 2) ? ICC_FESTERGUT_RANGED_SPORE_2
-                                                : ICC_FESTERGUT_RANGED_SPORE;
+    Position currentSpot = (state.currentSlot == 2) ? ICC_FESTERGUT_RANGED_SPORE_2
+                                                    : ICC_FESTERGUT_RANGED_SPORE;
 
-    for (auto const& impact : IcecrownHelpers::malleableGooImpacts)
+    auto it = IcecrownHelpers::malleableGooImpacts.find(bot->GetMap()->GetInstanceId());
+    if (it != IcecrownHelpers::malleableGooImpacts.end())
     {
-        if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
-            continue;
-        float dx = impact.position.GetPositionX() - currentSpot.GetPositionX();
-        float dy = impact.position.GetPositionY() - currentSpot.GetPositionY();
-        if (dx * dx + dy * dy < gooNearSporeRadius * gooNearSporeRadius)
+        for (auto const& impact : it->second)
         {
-            s_currentSlot = (s_currentSlot == 1) ? 2 : 1;
-            currentSpot = (s_currentSlot == 2) ? ICC_FESTERGUT_RANGED_SPORE_2
-                                               : ICC_FESTERGUT_RANGED_SPORE;
-            break;
+            if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
+                continue;
+            float dx = impact.position.GetPositionX() - currentSpot.GetPositionX();
+            float dy = impact.position.GetPositionY() - currentSpot.GetPositionY();
+            if (dx * dx + dy * dy < gooNearSporeRadius * gooNearSporeRadius)
+            {
+                state.currentSlot = (state.currentSlot == 1) ? 2 : 1;
+                currentSpot = (state.currentSlot == 2) ? ICC_FESTERGUT_RANGED_SPORE_2
+                                                       : ICC_FESTERGUT_RANGED_SPORE;
+                break;
+            }
         }
     }
 
@@ -353,14 +371,18 @@ bool IccFestergutSporeAction::GooNear(Position const& pos)
     constexpr float gooDangerRadius = 12.0f;
 
     uint32 now = getMSTime();
-    for (auto const& impact : IcecrownHelpers::malleableGooImpacts)
+    auto it = IcecrownHelpers::malleableGooImpacts.find(bot->GetMap()->GetInstanceId());
+    if (it != IcecrownHelpers::malleableGooImpacts.end())
     {
-        if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
-            continue;
-        float dx = pos.GetPositionX() - impact.position.GetPositionX();
-        float dy = pos.GetPositionY() - impact.position.GetPositionY();
-        if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
-            return true;
+        for (auto const& impact : it->second)
+        {
+            if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
+                continue;
+            float dx = pos.GetPositionX() - impact.position.GetPositionX();
+            float dy = pos.GetPositionY() - impact.position.GetPositionY();
+            if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
+                return true;
+        }
     }
     return false;
 }
@@ -456,16 +478,20 @@ bool IccFestergutAvoidMalleableGooAction::Execute(Event /*event*/)
     std::vector<Position> goos;
     goos.reserve(4);
     bool botInDanger = false;
-    for (auto const& impact : IcecrownHelpers::malleableGooImpacts)
+    auto impactIt = IcecrownHelpers::malleableGooImpacts.find(bot->GetMap()->GetInstanceId());
+    if (impactIt != IcecrownHelpers::malleableGooImpacts.end())
     {
-        if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
-            continue;
-        goos.push_back(impact.position);
+        for (auto const& impact : impactIt->second)
+        {
+            if (getMSTimeDiff(impact.castTime, now) > impactLifetimeMs)
+                continue;
+            goos.push_back(impact.position);
 
-        float dx = botX - impact.position.GetPositionX();
-        float dy = botY - impact.position.GetPositionY();
-        if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
-            botInDanger = true;
+            float dx = botX - impact.position.GetPositionX();
+            float dy = botY - impact.position.GetPositionY();
+            if (dx * dx + dy * dy < gooDangerRadius * gooDangerRadius)
+                botInDanger = true;
+        }
     }
 
     if (!botInDanger)
@@ -476,12 +502,49 @@ bool IccFestergutAvoidMalleableGooAction::Execute(Event /*event*/)
         return false;
     }
 
+    // Keep 10yd between fleeing bots. During spore phase melee stack at the
+    // tank spot, so we ignore melee allies (the tank/melee pile would reject
+    // every nearby candidate). When no spore is active, melee also spread.
+    constexpr float botSpacing = 10.0f;
+    bool sporeActive = false;
+    if (Group* group = bot->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (member && member->HasAura(SPELL_GAS_SPORE))
+            {
+                sporeActive = true;
+                break;
+            }
+        }
+    }
+
+    std::vector<Position> alliesToSpace;
+    if (Group* group = bot->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (!member || !member->IsAlive() || member->GetGUID() == botGuid)
+                continue;
+            if (sporeActive && botAI->IsMelee(member))
+                continue;
+            alliesToSpace.push_back(member->GetPosition());
+        }
+    }
+
     constexpr int angleSteps = 24;
     float const radii[] = {13.0f, 16.0f, 20.0f};
     float bestScore = -1.0f;
     float bestX = botX;
     float bestY = botY;
     bool found = false;
+
+    // Per-bot preferred flee angle - stable across ticks, distinct per GUID -
+    // so stacked bots fan out into different sectors instead of converging.
+    float preferredAngle = (botGuid.GetCounter() % angleSteps) * (2.0f * float(M_PI) / angleSteps);
+    constexpr float angleBias = 3.0f;
 
     for (float r : radii)
     {
@@ -509,11 +572,25 @@ bool IccFestergutAvoidMalleableGooAction::Execute(Event /*event*/)
             if (!safe)
                 continue;
 
+            bool tooCloseToAlly = false;
+            for (Position const& a2 : alliesToSpace)
+            {
+                float adx = cx - a2.GetPositionX();
+                float ady = cy - a2.GetPositionY();
+                if (adx * adx + ady * ady < botSpacing * botSpacing)
+                {
+                    tooCloseToAlly = true;
+                    break;
+                }
+            }
+            if (tooCloseToAlly)
+                continue;
+
             if (!bot->IsWithinLOS(cx, cy, botZ))
                 continue;
 
             float travel = std::sqrt((cx - botX) * (cx - botX) + (cy - botY) * (cy - botY));
-            float score = std::sqrt(minGooDistSq) - travel * 0.1f;
+            float score = std::sqrt(minGooDistSq) - travel * 0.1f + std::cos(a - preferredAngle) * angleBias;
 
             if (score > bestScore)
             {

@@ -189,6 +189,9 @@ float IccFestergutMultiplier::GetValue(Action* action)
     if (dynamic_cast<FleeAction*>(action))
         return 0.0f;
 
+    if (dynamic_cast<CastDisengageAction*>(action) || dynamic_cast<CastBlinkBackAction*>(action))
+        return 0.0f;
+
     if (botAI->IsTank(bot))
     {
         Aura* aura = botAI->GetAura("gastric bloat", bot, false, true);
