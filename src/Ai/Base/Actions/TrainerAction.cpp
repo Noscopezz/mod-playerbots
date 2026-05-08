@@ -294,13 +294,13 @@ bool BisGearAction::Execute(Event /*event*/)
 
     if (sPlayerbotAIConfig.autoGearQualityLimit < 4)
     {
-        botAI->TellError("AutoGearQualityLimit must be >= 4 for ICC BiS.");
+        botAI->TellError("AutoGearQualityLimit must be = 4 for ICC BiS.");
         return false;
     }
 
     if (sPlayerbotAIConfig.autoGearScoreLimit != 0 && sPlayerbotAIConfig.autoGearScoreLimit < 290)
     {
-        botAI->TellError("AutoGearScoreLimit must be >= 290 (or 0) for ICC BiS.");
+        botAI->TellError("AutoGearScoreLimit must be = 290 for ICC BiS.");
         return false;
     }
 
