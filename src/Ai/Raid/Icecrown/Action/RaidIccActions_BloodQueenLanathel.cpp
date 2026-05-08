@@ -78,9 +78,11 @@ bool IccBqlGroupPositionAction::HandleShadowsMovement()
     float const DISTANCE_PENALTY_FACTOR = 100.0f;  // Penalty per yard moved from current position
     float const MAX_CURVE_JUMP_DIST = 5.0f;        // Maximum distance for jumping between curves
 
-    // Track current curve to avoid unnecessary switching
-    static std::map<ObjectGuid, int> botCurrentCurve;
-    int currentCurve = botCurrentCurve.count(bot->GetGUID()) ? botCurrentCurve[bot->GetGUID()] : 0;
+    // Track current curve to avoid unnecessary switching (keyed per-instance to avoid
+    // cross-instance pollution when multiple ICCs run simultaneously)
+    static std::map<std::pair<uint32, ObjectGuid>, int> botCurrentCurve;
+    auto curveKey = std::make_pair(bot->GetInstanceId(), bot->GetGUID());
+    int currentCurve = botCurrentCurve.count(curveKey) ? botCurrentCurve[curveKey] : 0;
 
     // Find closest wall path
     Position lwall[4] = {ICC_BQL_LWALL1_POSITION, AdjustControlPoint(ICC_BQL_LWALL2_POSITION, center, 1.30f),
@@ -342,7 +344,7 @@ bool IccBqlGroupPositionAction::HandleShadowsMovement()
     // Remember the selected curve for next time
     if (foundCurve)
     {
-        botCurrentCurve[bot->GetGUID()] = bestCurve.curveIdx;
+        botCurrentCurve[curveKey] = bestCurve.curveIdx;
     }
 
     // Create a move plan to guide the bot along the curve if necessary
@@ -494,7 +496,10 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
     // Air-phase latch: only arm once boss has been anchored at tank pos (ground phase
     // established). Prevents false-trigger at pull when boss comes near center.
     // Disarm when boss returns to tank pos (ground phase resumed after landing).
-    static bool groundPhaseEstablished = false;
+    // Keyed per-instance so concurrent ICC raids don't share the latch.
+    static std::map<uint32, bool> groundPhaseEstablishedByInstance;
+    uint32 instanceId = bot->GetInstanceId();
+    bool& groundPhaseEstablished = groundPhaseEstablishedByInstance[instanceId];
     float bossFromTank = boss->GetExactDist2d(ICC_BQL_TANK_POSITION);
     float bossFromCenter = boss->GetExactDist2d(ICC_BQL_CENTER_POSITION);
     bool bossAirborne = (boss->GetPositionZ() - ICC_BQL_CENTER_POSITION.GetPositionZ()) > 5.0f;
@@ -686,15 +691,17 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
             return !IsInShadow(sx, sy);
         };
 
-        // Persistent memory separate from ground phase (different slot sets)
-        static std::map<ObjectGuid, int> airSlotMemory;
+        // Persistent memory separate from ground phase (different slot sets).
+        // Keyed per-instance to avoid cross-instance pollution.
+        static std::map<std::pair<uint32, ObjectGuid>, int> airSlotMemory;
+        uint32 const airInstanceId = bot->GetInstanceId();
 
         std::vector<int> reservedSlots;
         for (Player* rp : roster)
         {
             if (rp == bot)
                 continue;
-            auto it = airSlotMemory.find(rp->GetGUID());
+            auto it = airSlotMemory.find(std::make_pair(airInstanceId, rp->GetGUID()));
             if (it != airSlotMemory.end() && it->second >= 0 && it->second < totalSlots)
                 reservedSlots.push_back(it->second);
         }
@@ -706,8 +713,9 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
         bool botInShadow = IsInShadow(bot->GetPositionX(), bot->GetPositionY());
 
         int myAssignedSlot = -1;
+        auto myAirKey = std::make_pair(airInstanceId, bot->GetGUID());
 
-        auto myMemIt = airSlotMemory.find(bot->GetGUID());
+        auto myMemIt = airSlotMemory.find(myAirKey);
         if (myMemIt != airSlotMemory.end())
         {
             int prev = myMemIt->second;
@@ -738,7 +746,7 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
 
         if (myAssignedSlot < 0)
         {
-            airSlotMemory.erase(bot->GetGUID());
+            airSlotMemory.erase(myAirKey);
 
             // No safe slot available — if standing in shadow, flee away from nearest shadow
             if (botInShadow)
@@ -775,7 +783,7 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
         }
         else
         {
-            airSlotMemory[bot->GetGUID()] = myAssignedSlot;
+            airSlotMemory[myAirKey] = myAssignedSlot;
 
             float candidateX, candidateY;
             AirSlotPos(myAssignedSlot, candidateX, candidateY);
@@ -913,8 +921,10 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
             return !IsInShadow(sx, sy);
         };
 
-        // Persistent per-bot slot memory shared across all bots
-        static std::map<ObjectGuid, int> botSlotMemory;
+        // Persistent per-bot slot memory shared across all bots.
+        // Keyed per-instance to avoid cross-instance pollution.
+        static std::map<std::pair<uint32, ObjectGuid>, int> botSlotMemory;
+        uint32 const groundInstanceId = bot->GetInstanceId();
 
         // Collect every OTHER bot's remembered slot as "reserved" — each bot owns its own
         // memory and we must respect their claim, even if we can't see the same shadows.
@@ -924,7 +934,7 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
         {
             if (rp == bot)
                 continue;
-            auto it = botSlotMemory.find(rp->GetGUID());
+            auto it = botSlotMemory.find(std::make_pair(groundInstanceId, rp->GetGUID()));
             if (it != botSlotMemory.end() && it->second >= 0 && it->second < totalSlots)
                 reservedSlots.push_back(it->second);
         }
@@ -936,9 +946,10 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
 
         int myAssignedSlot = -1;
         bool myFellBack = false;
+        auto myGroundKey = std::make_pair(groundInstanceId, bot->GetGUID());
 
         // Step 1: keep my remembered slot if still safe and not reserved by someone else
-        auto myMemIt = botSlotMemory.find(bot->GetGUID());
+        auto myMemIt = botSlotMemory.find(myGroundKey);
         if (myMemIt != botSlotMemory.end())
         {
             int prev = myMemIt->second;
@@ -967,12 +978,12 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
         if (myAssignedSlot < 0)
         {
             // No safe unreserved slot — fall back to melee. Forget my slot so others can use it.
-            botSlotMemory.erase(bot->GetGUID());
+            botSlotMemory.erase(myGroundKey);
             myFellBack = true;
         }
         else
         {
-            botSlotMemory[bot->GetGUID()] = myAssignedSlot;
+            botSlotMemory[myGroundKey] = myAssignedSlot;
         }
 
         if (myAssignedSlot >= 0)
