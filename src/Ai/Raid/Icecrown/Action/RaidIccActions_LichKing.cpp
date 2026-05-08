@@ -538,7 +538,8 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
         uint32 startMs;
         Position const* pos;
     };
-    static std::map<ObjectGuid, WinterStageState> s_winterStage;
+    static std::map<std::pair<uint32, ObjectGuid>, WinterStageState> s_winterStage;
+    auto const winterKey = std::make_pair(boss->GetInstanceId(), boss->GetGUID());
 
     bool const bossCastingWinter = boss->HasUnitState(UNIT_STATE_CASTING) &&
         (boss->FindCurrentSpellBySpellId(SPELL_REMORSELESS_WINTER1) ||
@@ -556,7 +557,7 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
     // that hasn't yet expired. The cast ends before the aura applies, so we
     // can't rely on bossCastingWinter staying true for the full window.
     uint32 const now = getMSTime();
-    auto winterIt = s_winterStage.find(boss->GetGUID());
+    auto winterIt = s_winterStage.find(winterKey);
     bool const stageActive = winterIt != s_winterStage.end() &&
                              getMSTimeDiff(winterIt->second.startMs, now) < STAGE_DURATION_MS;
 
@@ -591,7 +592,7 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
                                          PLATFORM_Z, 3.0f))
                 chosen = &ICC_LK_VILE_SPIRIT2_POSITION;
 
-            winterIt = s_winterStage.emplace(boss->GetGUID(), WinterStageState{now, chosen}).first;
+            winterIt = s_winterStage.emplace(winterKey, WinterStageState{now, chosen}).first;
         }
 
         uint32 const elapsed = getMSTimeDiff(winterIt->second.startMs, now);
@@ -600,24 +601,25 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
         if (stagePos && elapsed < STAGE_DURATION_MS)
         {
             static constexpr float STAGE_TOLERANCE = 3.0f;
-            static std::map<ObjectGuid, bool> s_stageInbound;
+            static std::map<std::pair<uint32, ObjectGuid>, bool> s_stageInbound;
+            auto const stageKey = std::make_pair(bot->GetInstanceId(), bot->GetGUID());
             float const dist = bot->GetDistance2d(stagePos->GetPositionX(), stagePos->GetPositionY());
             if (dist > STAGE_TOLERANCE)
             {
-                if (!s_stageInbound[bot->GetGUID()])
+                if (!s_stageInbound[stageKey])
                 {
                     bot->AttackStop();
                     bot->InterruptNonMeleeSpells(true);
                     bot->SetTarget(ObjectGuid::Empty);
                     context->GetValue<Unit*>("current target")->Set(nullptr);
                     botAI->Reset();
-                    s_stageInbound[bot->GetGUID()] = true;
+                    s_stageInbound[stageKey] = true;
                 }
                 TryMoveToPosition(stagePos->GetPositionX(), stagePos->GetPositionY(), PLATFORM_Z, true);
             }
             else
             {
-                s_stageInbound[bot->GetGUID()] = false;
+                s_stageInbound[stageKey] = false;
                 bot->StopMoving();
             }
             return true;
@@ -629,7 +631,7 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
         // re-casting). This keeps the staging entry alive across the brief
         // gap between cast end and aura application, and prevents tanks from
         // wiping the entry mid-staging (tanks always hit this branch).
-        s_winterStage.erase(boss->GetGUID());
+        s_winterStage.erase(winterKey);
     }
 
     // Defile evacuation has absolute priority over everything else
@@ -1000,24 +1002,25 @@ bool IccLichKingWinterAction::HandleTankPositioning()
     if (botAI->IsMainTank(bot))
     {
         float const dist = bot->GetDistance2d(frostPos.GetPositionX(), frostPos.GetPositionY());
-        static std::map<ObjectGuid, bool> s_mtInbound;
+        static std::map<std::pair<uint32, ObjectGuid>, bool> s_mtInbound;
+        auto const mtKey = std::make_pair(bot->GetInstanceId(), bot->GetGUID());
 
         if (dist > FROST_AT_POS_TOLERANCE)
         {
-            if (!s_mtInbound[bot->GetGUID()])
+            if (!s_mtInbound[mtKey])
             {
                 bot->AttackStop();
                 bot->InterruptNonMeleeSpells(true);
                 bot->SetTarget(ObjectGuid::Empty);
                 context->GetValue<Unit*>("current target")->Set(nullptr);
                 botAI->Reset();
-                s_mtInbound[bot->GetGUID()] = true;
+                s_mtInbound[mtKey] = true;
             }
             TryMoveToPosition(frostPos.GetPositionX(), frostPos.GetPositionY(), PLATFORM_Z, true);
             return false;
         }
 
-        s_mtInbound[bot->GetGUID()] = false;
+        s_mtInbound[mtKey] = false;
         return HandleMainTankAddManagement(boss, &frostPos);
     }
 
@@ -1251,13 +1254,14 @@ bool IccLichKingWinterAction::HandleRangedPositioning()
     // Move to ranged frost position. Clear target + reset only on the FIRST
     // tick of the inbound phase — otherwise we cancel the bot's own movement
     // every tick and it ends up walking 1y per cycle.
-    static std::map<ObjectGuid, bool> s_rangedInbound;
+    static std::map<std::pair<uint32, ObjectGuid>, bool> s_rangedInbound;
+    auto const rangedKey = std::make_pair(bot->GetInstanceId(), bot->GetGUID());
     bool const farFromAnchor =
         bot->GetDistance2d(targetPos.GetPositionX(), targetPos.GetPositionY()) > 2.0f;
 
     if (farFromAnchor)
     {
-        bool const wasInbound = s_rangedInbound[bot->GetGUID()];
+        bool const wasInbound = s_rangedInbound[rangedKey];
         if (!wasInbound)
         {
             bot->AttackStop();
@@ -1265,14 +1269,14 @@ bool IccLichKingWinterAction::HandleRangedPositioning()
             bot->SetTarget(ObjectGuid::Empty);
             context->GetValue<Unit*>("current target")->Set(nullptr);
             botAI->Reset();
-            s_rangedInbound[bot->GetGUID()] = true;
+            s_rangedInbound[rangedKey] = true;
         }
         TryMoveToPosition(targetPos.GetPositionX(), targetPos.GetPositionY(), PLATFORM_Z, true);
         // Skip target acquisition while inbound — Attack() would cancel movement.
         return false;
     }
 
-    s_rangedInbound[bot->GetGUID()] = false;
+    s_rangedInbound[rangedKey] = false;
 
     if (!botAI->IsRangedDps(bot))
         return false;
@@ -2129,9 +2133,13 @@ bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* ter
     static constexpr float MAX_HEIGHT_DIFF = 8.0f;
     static constexpr uint32 UNSAFE_MEM_MS = 15000;
 
-    static float s_lastUnsafeX = 0.0f;
-    static float s_lastUnsafeY = 0.0f;
-    static uint32 s_lastUnsafeTime = 0;
+    static std::map<uint32, float> s_lastUnsafeX;
+    static std::map<uint32, float> s_lastUnsafeY;
+    static std::map<uint32, uint32> s_lastUnsafeTime;
+    uint32 const instId = bot->GetInstanceId();
+    float& lastUnsafeX = s_lastUnsafeX[instId];
+    float& lastUnsafeY = s_lastUnsafeY[instId];
+    uint32& lastUnsafeTime = s_lastUnsafeTime[instId];
 
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
 
@@ -2164,9 +2172,9 @@ bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* ter
     if (currentlySafe)
         return true;
 
-    s_lastUnsafeX = bot->GetPositionX();
-    s_lastUnsafeY = bot->GetPositionY();
-    s_lastUnsafeTime = getMSTime();
+    lastUnsafeX = bot->GetPositionX();
+    lastUnsafeY = bot->GetPositionY();
+    lastUnsafeTime = getMSTime();
 
     // Search for the best nearby safe position
     static constexpr std::array<float, 5> SearchDistances = {6.0f, 10.0f, 15.0f, 20.0f, 25.0f};
@@ -2219,8 +2227,8 @@ bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* ter
             if (!posSafe)
                 continue;
 
-            if (s_lastUnsafeTime != 0 && (getMSTime() - s_lastUnsafeTime) < UNSAFE_MEM_MS &&
-                std::hypot(testX - s_lastUnsafeX, testY - s_lastUnsafeY) < SAFE_DIST)
+            if (lastUnsafeTime != 0 && (getMSTime() - lastUnsafeTime) < UNSAFE_MEM_MS &&
+                std::hypot(testX - lastUnsafeX, testY - lastUnsafeY) < SAFE_DIST)
                 continue;
 
             float const distBonus = std::max(0.0f, 30.0f - radius);
@@ -3260,12 +3268,16 @@ bool IccLichKingAddsAction::HandleCenterStacking(Unit* boss, Difficulty diff)
 
     // Defile target: let HandleDefileMechanics() handle movement
     // (perpendicular run). Don't override with slot/center movement.
-    auto const& defileInfo = IcecrownHelpers::defileCast;
-    if (!defileInfo.targetGuid.IsEmpty() &&
-        getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 &&
-        defileInfo.targetGuid == bot->GetGUID())
+    auto const defileIt = IcecrownHelpers::defileCast.find(bot->GetInstanceId());
+    if (defileIt != IcecrownHelpers::defileCast.end())
     {
-        return false;
+        auto const& defileInfo = defileIt->second;
+        if (!defileInfo.targetGuid.IsEmpty() &&
+            getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 &&
+            defileInfo.targetGuid == bot->GetGUID())
+        {
+            return false;
+        }
     }
 
     // Marked Val'kyrs (Skull/Cross/Star) are being kited by assist - bots
@@ -3335,12 +3347,13 @@ bool IccLichKingAddsAction::HandleCenterStacking(Unit* boss, Difficulty diff)
         // bots converge on the same anchor. Cached per boss GUID for 2s to
         // dampen flicker if defile state shifts between ticks.
         struct StackChoice { uint32 evaluatedMs; int slotIdx; };
-        static std::map<ObjectGuid, StackChoice> s_stackChoice;
+        static std::map<std::pair<uint32, ObjectGuid>, StackChoice> s_stackChoice;
         static constexpr uint32 STACK_CHOICE_TTL_MS = 2000;
+        auto const stackKey = std::make_pair(boss->GetInstanceId(), boss->GetGUID());
 
         uint32 const now = getMSTime();
         int chosen = -1;
-        auto cacheIt = s_stackChoice.find(boss->GetGUID());
+        auto cacheIt = s_stackChoice.find(stackKey);
         if (cacheIt != s_stackChoice.end() &&
             getMSTimeDiff(cacheIt->second.evaluatedMs, now) < STACK_CHOICE_TTL_MS)
         {
@@ -3363,7 +3376,7 @@ bool IccLichKingAddsAction::HandleCenterStacking(Unit* boss, Difficulty diff)
                     chosen = i;
                 }
             }
-            s_stackChoice[boss->GetGUID()] = {now, chosen};
+            s_stackChoice[stackKey] = {now, chosen};
         }
 
         if (chosen < 0)
@@ -3504,7 +3517,10 @@ bool IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
 
     // Boss casting Defile — only the targeted player runs out. Target is
     // stamped by IccLichKingListenerScript at OnSpellPrepare time (cast start).
-    auto const& info = IcecrownHelpers::defileCast;
+    auto const defileIt = IcecrownHelpers::defileCast.find(bot->GetInstanceId());
+    if (defileIt == IcecrownHelpers::defileCast.end())
+        return false;
+    auto const& info = defileIt->second;
     if (info.targetGuid.IsEmpty() || getMSTimeDiff(info.castTime, getMSTime()) > 3000)
         return false;
 
@@ -3513,11 +3529,12 @@ bool IccLichKingAddsAction::HandleDefileMechanics(Unit* boss, Difficulty diff)
         return false;
 
     // Main tank yells once per cast.
-    static uint32 s_lastYellMs = 0;
-    if (botAI->IsMainTank(bot) && info.castTime != s_lastYellMs)
+    static std::map<uint32, uint32> s_lastYellMs;
+    uint32& lastYellMs = s_lastYellMs[bot->GetInstanceId()];
+    if (botAI->IsMainTank(bot) && info.castTime != lastYellMs)
     {
         botAI->Yell("Defile on " + target->GetName() + " - move to the edge!");
-        s_lastYellMs = info.castTime;
+        lastYellMs = info.castTime;
     }
 
     if (!target->HasAura(SPELL_NITRO_BOOSTS))
@@ -3666,9 +3683,13 @@ bool IccLichKingAddsAction::HandleValkyrMechanics(Difficulty diff)
 
     // Defile target: let HandleDefileMechanics() handle movement
     // (perpendicular run). Don't override with Val'kyr chase.
-    auto const& defileInfo = IcecrownHelpers::defileCast;
-    if (!defileInfo.targetGuid.IsEmpty() && getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 && defileInfo.targetGuid == bot->GetGUID())
-        return false;
+    auto const defileIt = IcecrownHelpers::defileCast.find(bot->GetInstanceId());
+    if (defileIt != IcecrownHelpers::defileCast.end())
+    {
+        auto const& defileInfo = defileIt->second;
+        if (!defileInfo.targetGuid.IsEmpty() && getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 && defileInfo.targetGuid == bot->GetGUID())
+            return false;
+    }
 
     HandleValkyrMarking(grabbingValkyrs, diff);
     HandleValkyrAssignment(grabbingValkyrs);
@@ -3858,9 +3879,13 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
     // Defile target: let HandleDefileMechanics() handle movement
     // (perpendicular run). Don't override with spirit chase or slot
     // movement.
-    auto const& defileInfo = IcecrownHelpers::defileCast;
-    if (!defileInfo.targetGuid.IsEmpty() && getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 && defileInfo.targetGuid == bot->GetGUID())
-        return false;
+    auto const defileIt = IcecrownHelpers::defileCast.find(bot->GetInstanceId());
+    if (defileIt != IcecrownHelpers::defileCast.end())
+    {
+        auto const& defileInfo = defileIt->second;
+        if (!defileInfo.targetGuid.IsEmpty() && getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 && defileInfo.targetGuid == bot->GetGUID())
+            return false;
+    }
 
     GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
 
@@ -3886,8 +3911,13 @@ bool IccLichKingAddsAction::HandleVileSpiritMechanics()
     }
 
     // Shared raid-wide slot choice. All bots converge on the same position so
-    // they stay stacked. Reset when no spirits are alive.
-    static int sharedSlot = -1;
+    // they stay stacked. Reset when no spirits are alive. Keyed per-instance to
+    // avoid cross-instance pollution when multiple ICCs run simultaneously.
+    static std::map<uint32, int> s_sharedSlotByInstance;
+    auto sharedSlotIt = s_sharedSlotByInstance.find(bot->GetInstanceId());
+    if (sharedSlotIt == s_sharedSlotByInstance.end())
+        sharedSlotIt = s_sharedSlotByInstance.emplace(bot->GetInstanceId(), -1).first;
+    int& sharedSlot = sharedSlotIt->second;
 
     if (spiritCount == 0)
     {

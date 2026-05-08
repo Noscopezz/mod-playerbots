@@ -37,7 +37,7 @@ namespace IcecrownHelpers
         ObjectGuid targetGuid;
         uint32 castTime;
     };
-    extern DefileCastInfo defileCast;
+    extern std::unordered_map<uint32, DefileCastInfo> defileCast;
 
     // Rotface - Vile Gas. Stamped at OnSpellCast time so the targeted bot can
     // react before the aura applies. Readers treat entries older than ~5s as

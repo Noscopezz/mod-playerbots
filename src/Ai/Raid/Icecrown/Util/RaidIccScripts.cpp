@@ -11,7 +11,7 @@ namespace IcecrownHelpers
 {
     std::unordered_map<uint32, std::vector<MalleableGooImpact>> malleableGooImpacts;
     std::map<ObjectGuid, uint32> festergutGooWaitUntil;
-    DefileCastInfo defileCast;
+    std::unordered_map<uint32, DefileCastInfo> defileCast;
     std::unordered_map<uint32, VileGasVictim> rotfaceVileGas;
     std::map<ObjectGuid, uint32> rotfaceVileGasWaitUntil;
 }
@@ -108,8 +108,10 @@ public:
         if (!target || !target->IsPlayer())
             return;
 
-        IcecrownHelpers::defileCast.targetGuid = target->GetGUID();
-        IcecrownHelpers::defileCast.castTime = getMSTime();
+        IcecrownHelpers::DefileCastInfo& entry =
+            IcecrownHelpers::defileCast[caster->GetMap()->GetInstanceId()];
+        entry.targetGuid = target->GetGUID();
+        entry.castTime = getMSTime();
     }
 };
 

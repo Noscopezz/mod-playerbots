@@ -691,8 +691,10 @@ public:
     static constexpr float TOMB_POSITION_TOLERANCE = 0.5f;
     static constexpr float MIN_SAFE_DISTANCE = 13.0f;
     static constexpr float MOVE_TOLERANCE = 2.0f;
-    static std::set<int> s_flaredRedThisPhase;
-    static bool s_flaredBluePhase3;
+    // Keyed per-instance to avoid cross-instance pollution when multiple ICCs run simultaneously
+    static std::map<uint32, std::set<int>> s_flaredRedThisPhase;
+    static std::map<uint32, bool> s_flaredBluePhase3;
+    static std::map<uint32, bool> s_lastPhase3;
     static uint32 s_nextFlareMs;
     static constexpr uint32 FLARE_ITEM_COOLDOWN_MS = 1000;
 };
@@ -755,9 +757,10 @@ private:
     std::vector<Unit*> SelectTombs(std::vector<Unit*> const& tombs, int groupIndex, int groupCount) const;
     Unit* ResolveStickyTomb(std::vector<Unit*> const& myTombs);
     bool HandleRtiMarking(Group* group, int groupIndex, std::vector<Unit*> const& myTombs, Unit* losTomb);
-    static std::map<ObjectGuid, int> s_groupAssignments;
-    static std::map<ObjectGuid, ObjectGuid> s_tombAssignments;
-    static std::set<ObjectGuid> s_freedFallback;
+    // Keyed per-instance to avoid cross-instance pollution when multiple ICCs run simultaneously
+    static std::map<std::pair<uint32, ObjectGuid>, int> s_groupAssignments;
+    static std::map<std::pair<uint32, ObjectGuid>, ObjectGuid> s_tombAssignments;
+    static std::set<std::pair<uint32, ObjectGuid>> s_freedFallback;
 
     // Per-bot last LOS move stamp. When the LOS tomb dies/loses mark mid-walk
     // the bot would otherwise freeze in the open. Replaying the last move for
@@ -769,7 +772,8 @@ private:
         float y = 0.0f;
         float z = 0.0f;
     };
-    static std::map<ObjectGuid, LastLosMove> s_lastLosMove;
+    // Keyed per-instance to avoid cross-instance pollution
+    static std::map<std::pair<uint32, ObjectGuid>, LastLosMove> s_lastLosMove;
 };
 
 class IccSindragosaTankSwapPositionAction : public AttackAction
