@@ -311,13 +311,15 @@ bool IccSindragosaFrostBeaconAction::TryDropTombFlares(Unit const* boss)
         return false;
 
     // Phase tracking: clear flared sets on phase boundary so each phase gets fresh markers.
-    static bool s_lastPhase3 = false;
+    // Keyed per-instance so concurrent ICC raids don't share phase state.
+    uint32 const instanceId = bot->GetInstanceId();
     bool const phase3 = boss->HealthBelowPct(35);
-    if (phase3 != s_lastPhase3)
+    bool& lastPhase3 = s_lastPhase3[instanceId];
+    if (phase3 != lastPhase3)
     {
-        s_flaredRedThisPhase.clear();
-        s_flaredBluePhase3 = false;
-        s_lastPhase3 = phase3;
+        s_flaredRedThisPhase[instanceId].clear();
+        s_flaredBluePhase3[instanceId] = false;
+        lastPhase3 = phase3;
     }
 
     // Build position list for current phase.
@@ -392,9 +394,9 @@ bool IccSindragosaFrostBeaconAction::TryDropTombFlares(Unit const* boss)
     auto const& [chosenIdx, chosenPos] = targets[mySlot];
 
     // Already flared by some bot — don't duplicate.
-    if (phase3 && s_flaredBluePhase3)
+    if (phase3 && s_flaredBluePhase3[instanceId])
         return false;
-    if (!phase3 && s_flaredRedThisPhase.count(chosenIdx))
+    if (!phase3 && s_flaredRedThisPhase[instanceId].count(chosenIdx))
         return false;
 
     // Skip if a tomb is already standing on this position.
@@ -441,9 +443,9 @@ bool IccSindragosaFrostBeaconAction::TryDropTombFlares(Unit const* boss)
 
     bot->GetSession()->HandleUseItemOpcode(packet);
     if (phase3)
-        s_flaredBluePhase3 = true;
+        s_flaredBluePhase3[instanceId] = true;
     else
-        s_flaredRedThisPhase.insert(chosenIdx);
+        s_flaredRedThisPhase[instanceId].insert(chosenIdx);
     return false;
 }
 
@@ -467,8 +469,9 @@ bool IccSindragosaTankSwapPositionAction::Execute(Event /*event*/)
     return false;
 }
 
-std::set<int> IccSindragosaFrostBeaconAction::s_flaredRedThisPhase;
-bool IccSindragosaFrostBeaconAction::s_flaredBluePhase3 = false;
+std::map<uint32, std::set<int>> IccSindragosaFrostBeaconAction::s_flaredRedThisPhase;
+std::map<uint32, bool> IccSindragosaFrostBeaconAction::s_flaredBluePhase3;
+std::map<uint32, bool> IccSindragosaFrostBeaconAction::s_lastPhase3;
 uint32 IccSindragosaFrostBeaconAction::s_nextFlareMs = 0;  // deprecated, kept for ABI of header
 
 bool IccSindragosaFrostBeaconAction::Execute(Event /*event*/)
@@ -927,10 +930,10 @@ bool IccSindragosaMysticBuffetAction::Execute(Event /*event*/)
     return false;
 }
 
-std::map<ObjectGuid, int> IccSindragosaFrostBombAction::s_groupAssignments;
-std::map<ObjectGuid, ObjectGuid> IccSindragosaFrostBombAction::s_tombAssignments;
-std::set<ObjectGuid> IccSindragosaFrostBombAction::s_freedFallback;
-std::map<ObjectGuid, IccSindragosaFrostBombAction::LastLosMove>
+std::map<std::pair<uint32, ObjectGuid>, int> IccSindragosaFrostBombAction::s_groupAssignments;
+std::map<std::pair<uint32, ObjectGuid>, ObjectGuid> IccSindragosaFrostBombAction::s_tombAssignments;
+std::set<std::pair<uint32, ObjectGuid>> IccSindragosaFrostBombAction::s_freedFallback;
+std::map<std::pair<uint32, ObjectGuid>, IccSindragosaFrostBombAction::LastLosMove>
     IccSindragosaFrostBombAction::s_lastLosMove;
 
 bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
@@ -945,7 +948,7 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
     if (bot->HasAura(SPELL_ICE_TOMB))
     {
         PinGroupToCurrentZone();
-        s_freedFallback.insert(bot->GetGUID());
+        s_freedFallback.insert(std::make_pair(bot->GetInstanceId(), bot->GetGUID()));
         return false;
     }
 
@@ -1077,7 +1080,7 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
     {
         // Freed-from-tomb fallback: hide behind the nearest alive tomb anywhere
         // in the arena rather than running across to our pinned zone anchor.
-        if (s_freedFallback.count(bot->GetGUID()))
+        if (s_freedFallback.count(std::make_pair(bot->GetInstanceId(), bot->GetGUID())))
         {
             Unit* nearest = nullptr;
             float minDist = std::numeric_limits<float>::max();
@@ -1127,7 +1130,8 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
     }
 
     // Pinned zone has tombs again — exit fallback mode
-    s_freedFallback.erase(bot->GetGUID());
+    auto const losKey = std::make_pair(bot->GetInstanceId(), bot->GetGUID());
+    s_freedFallback.erase(losKey);
 
     Unit* losTomb = ResolveStickyTomb(myTombs);
     if (!losTomb)
@@ -1135,7 +1139,7 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
         // LOS tomb died / lost mark mid-walk. If we recently issued an LOS
         // move, replay it for up to 2 seconds so the bot finishes its path
         // instead of freezing in the open until the next valid sticky tomb.
-        auto it = s_lastLosMove.find(bot->GetGUID());
+        auto it = s_lastLosMove.find(losKey);
         if (it != s_lastLosMove.end())
         {
             uint32 const now = getMSTime();
@@ -1169,7 +1173,7 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
 
         // Stamp this LOS move so we can replay it for up to 2 seconds if the
         // tomb dies/loses mark before we arrive.
-        LastLosMove& stamp = s_lastLosMove[bot->GetGUID()];
+        LastLosMove& stamp = s_lastLosMove[losKey];
         stamp.timestampMs = getMSTime();
         stamp.x = posX;
         stamp.y = posY;
@@ -1179,7 +1183,7 @@ bool IccSindragosaFrostBombAction::Execute(Event /*event*/)
     }
 
     // Reached LOS spot — clear the replay stamp.
-    s_lastLosMove.erase(bot->GetGUID());
+    s_lastLosMove.erase(losKey);
 
     // Bot is parked at LOS spot. Face away from the LOS tomb only when our
     // zone has no kill-candidates left (every remaining tomb is protected).
@@ -1231,6 +1235,7 @@ int IccSindragosaFrostBombAction::ResolveGroupIndex(Group* group) const
     // Collect bot-only GUIDs from the current group snapshot.
     // Real players are excluded so they are never assigned a group index and
     // never become the designated marker; only bots manage icons.
+    uint32 const instanceId = bot->GetInstanceId();
     std::vector<ObjectGuid> currentGuids;
     for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
@@ -1250,12 +1255,13 @@ int IccSindragosaFrostBombAction::ResolveGroupIndex(Group* group) const
     // and don't trigger a full reshuffle that migrates other bots.
     for (ObjectGuid const& guid : currentGuids)
     {
-        if (s_groupAssignments.find(guid) == s_groupAssignments.end())
+        auto const key = std::make_pair(instanceId, guid);
+        if (s_groupAssignments.find(key) == s_groupAssignments.end())
         {
-            // Assign to the group with the fewest members so far
+            // Assign to the group with the fewest members so far (this instance only)
             std::array<int, 3> counts = {};
-            for (auto const& [g, idx] : s_groupAssignments)
-                if (idx < groupCount)
+            for (auto const& [k, idx] : s_groupAssignments)
+                if (k.first == instanceId && idx < groupCount)
                     ++counts[idx];
 
             int minGroup = 0;
@@ -1263,11 +1269,11 @@ int IccSindragosaFrostBombAction::ResolveGroupIndex(Group* group) const
                 if (counts[g] < counts[minGroup])
                     minGroup = g;
 
-            s_groupAssignments[guid] = minGroup;
+            s_groupAssignments[key] = minGroup;
         }
     }
 
-    auto it = s_groupAssignments.find(bot->GetGUID());
+    auto it = s_groupAssignments.find(std::make_pair(instanceId, bot->GetGUID()));
     return it != s_groupAssignments.end() ? it->second : -1;
 }
 
@@ -1354,7 +1360,7 @@ void IccSindragosaFrostBombAction::PinGroupToCurrentZone()
         }
     }
 
-    s_groupAssignments[bot->GetGUID()] = bestGroup;
+    s_groupAssignments[std::make_pair(bot->GetInstanceId(), bot->GetGUID())] = bestGroup;
 }
 
 std::vector<Unit*> IccSindragosaFrostBombAction::SelectTombs(std::vector<Unit*> const& tombs, int groupIndex, int groupCount) const
@@ -1403,7 +1409,8 @@ Unit* IccSindragosaFrostBombAction::ResolveStickyTomb(std::vector<Unit*> const& 
     // Keep the previously assigned tomb while it is still a valid member of
     // this group's zone. This avoids the cascading reassignment where a tomb's
     // HP fluctuation causes every bot to flip to a different LOS spot each tick.
-    auto it = s_tombAssignments.find(bot->GetGUID());
+    auto const key = std::make_pair(bot->GetInstanceId(), bot->GetGUID());
+    auto it = s_tombAssignments.find(key);
     if (it != s_tombAssignments.end())
     {
         for (Unit* tomb : myTombs)
@@ -1430,9 +1437,9 @@ Unit* IccSindragosaFrostBombAction::ResolveStickyTomb(std::vector<Unit*> const& 
     }
 
     if (nearest)
-        s_tombAssignments[bot->GetGUID()] = nearest->GetGUID();
+        s_tombAssignments[key] = nearest->GetGUID();
     else
-        s_tombAssignments.erase(bot->GetGUID());
+        s_tombAssignments.erase(key);
 
     return nearest;
 }
