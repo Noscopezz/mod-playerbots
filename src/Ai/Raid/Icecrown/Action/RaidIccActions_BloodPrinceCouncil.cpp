@@ -446,7 +446,7 @@ bool IccBpcEmpoweredVortexAction::MaintainRangedSpacing()
 
 bool IccBpcEmpoweredVortexAction::HandleEmpoweredVortexSpread()
 {
-    static std::map<ObjectGuid, uint32> spreadLockTimers;
+    static std::map<std::pair<uint32, ObjectGuid>, uint32> spreadLockTimers;
     static uint32 const SPREAD_LOCK_DURATION_MS = 250;
     static float const MOVE_INCREMENT = 4.0f;
     static float const SLOT_TOLERANCE = 2.0f;
@@ -471,7 +471,8 @@ bool IccBpcEmpoweredVortexAction::HandleEmpoweredVortexSpread()
             ++it;
     }
 
-    auto it = spreadLockTimers.find(bot->GetGUID());
+    uint32 const instanceId = bot->GetInstanceId();
+    auto it = spreadLockTimers.find({instanceId, bot->GetGUID()});
     if (it != spreadLockTimers.end())
         return false;
 
@@ -577,7 +578,7 @@ bool IccBpcEmpoweredVortexAction::HandleEmpoweredVortexSpread()
     // Close enough to slot — lock position
     if (distToSlot <= SLOT_TOLERANCE)
     {
-        spreadLockTimers[bot->GetGUID()] = now;
+        spreadLockTimers[{instanceId, bot->GetGUID()}] = now;
         return false;
     }
 
