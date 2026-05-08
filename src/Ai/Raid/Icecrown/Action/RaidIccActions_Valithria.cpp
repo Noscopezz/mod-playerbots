@@ -26,9 +26,10 @@ struct ValithriaCloudSync
 
 std::unordered_map<uint32, ValithriaCloudSync> VdwCloudSync;  // key: map instance ID
 
-// Per-healer remembered portal claim. Other healers see these claims and avoid
-// taking the same portal. Cleared when claimed portal disappears.
-std::unordered_map<ObjectGuid, ObjectGuid> VdwPortalClaim;  // healer GUID -> portal GUID
+// Per-instance per-healer remembered portal claim. Other healers in the same
+// instance see these claims and avoid taking the same portal. Outer key is the
+// map instance ID so concurrent ICC raids don't share or evict each other's claims.
+std::unordered_map<uint32, std::unordered_map<ObjectGuid, ObjectGuid>> VdwPortalClaim;
 }
 
 static bool CastClassTaunt(Player* bot, PlayerbotAI* botAI, Unit* target)
@@ -266,7 +267,14 @@ bool IccValithriaGroupAction::Execute(Event /*event*/)
     // extra skip-conditions below guard the remaining exclusive tasks.
     constexpr float LEASH_RADIUS = 35.0f;
     bool const inDreamState = bot->HasAura(SPELL_DREAM_STATE);
-    bool const hasPortalClaim = botAI->IsHeal(bot) && VdwPortalClaim.find(bot->GetGUID()) != VdwPortalClaim.end();
+    bool hasPortalClaim = false;
+    if (botAI->IsHeal(bot))
+    {
+        auto instanceIt = VdwPortalClaim.find(bot->GetMap()->GetInstanceId());
+        if (instanceIt != VdwPortalClaim.end() &&
+            instanceIt->second.find(bot->GetGUID()) != instanceIt->second.end())
+            hasPortalClaim = true;
+    }
     bool const hasZombieThreat = nearbyZombie && nearbyZombie->GetVictim() == bot;
     if (!inDreamState && !hasPortalClaim && !hasZombieThreat)
     {
@@ -842,6 +850,11 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
         GetCreaturesByEntries(bot, {NPC_DREAM_PORTAL, NPC_NIGHTMARE_PORTAL}, SEARCH_RANGE);
 
     // Evict stale claims BEFORE early-return so claims don't leak after fight.
+    // Scope eviction to this instance only - other ICC instances have their
+    // own portal GUID universes and we must not erase their claims.
+    uint32 const instanceId = bot->GetMap()->GetInstanceId();
+    auto& claims = VdwPortalClaim[instanceId];
+
     std::unordered_set<ObjectGuid> livePortalGuids;
     for (Creature* p : preEffectPortals)
         if (p)
@@ -850,20 +863,24 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
         if (p)
             livePortalGuids.insert(p->GetGUID());
 
-    for (auto it = VdwPortalClaim.begin(); it != VdwPortalClaim.end();)
+    for (auto it = claims.begin(); it != claims.end();)
     {
         if (!livePortalGuids.count(it->second))
-            it = VdwPortalClaim.erase(it);
+            it = claims.erase(it);
         else
             ++it;
     }
 
     if (preEffectPortals.empty() && realPortals.empty())
+    {
+        if (claims.empty())
+            VdwPortalClaim.erase(instanceId);
         return false;
+    }
 
     // Collect OTHER healers' claims so we never pick a portal already taken.
     std::unordered_set<ObjectGuid> reservedPortals;
-    for (auto const& kv : VdwPortalClaim)
+    for (auto const& kv : claims)
         if (kv.first != bot->GetGUID())
             reservedPortals.insert(kv.second);
 
@@ -917,7 +934,7 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
     if (!assigned)
         return false;
 
-    VdwPortalClaim[bot->GetGUID()] = assigned->GetGUID();
+    claims[bot->GetGUID()] = assigned->GetGUID();
 
     if (bot->GetDistance2d(assigned->GetPositionX(), assigned->GetPositionY()) > 0.5f)
     {
