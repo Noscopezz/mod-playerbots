@@ -251,9 +251,11 @@ float IccRotfaceMultiplier::GetValue(Action* action)
         auto const& waitMap = IcecrownHelpers::rotfaceVileGasWaitUntil;
         auto it = waitMap.find(bot->GetGUID());
         bool const inWait = it != waitMap.end() && now < it->second;
+        auto vgIt = IcecrownHelpers::rotfaceVileGas.find(bot->GetMap()->GetInstanceId());
         bool const isVictim =
-            IcecrownHelpers::rotfaceVileGas.victimGuid == bot->GetGUID() &&
-            getMSTimeDiff(IcecrownHelpers::rotfaceVileGas.castTime, now) < 8000;
+            vgIt != IcecrownHelpers::rotfaceVileGas.end() &&
+            vgIt->second.victimGuid == bot->GetGUID() &&
+            getMSTimeDiff(vgIt->second.castTime, now) < 8000;
 
         if (isVictim || inWait || botAI->HasAura("Vile Gas", bot))
         {

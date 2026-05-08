@@ -896,13 +896,16 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
                 anchor.GetPositionY() + ESCAPE_RADIUS * std::sin(angle)};
     };
 
-    static std::map<ObjectGuid, int32> sExplosionSlotMemory;
+    static std::map<std::pair<uint32, ObjectGuid>, int32> sExplosionSlotMemory;
 
-    // count how many OTHER bots occupy each slot
+    uint32 const instanceId = bot->GetMap()->GetInstanceId();
+    auto const myKey = std::make_pair(instanceId, bot->GetGUID());
+
+    // count how many OTHER bots in this instance occupy each slot
     std::array<int32, TOTAL_SLOTS> otherCount{};
-    for (auto const& [guid, slot] : sExplosionSlotMemory)
+    for (auto const& [key, slot] : sExplosionSlotMemory)
     {
-        if (guid != bot->GetGUID())
+        if (key.first == instanceId && key.second != bot->GetGUID())
             ++otherCount[slot];
     }
 
@@ -927,7 +930,7 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
         return bestSlot;
     };
 
-    auto currentSlotIt = sExplosionSlotMemory.find(bot->GetGUID());
+    auto currentSlotIt = sExplosionSlotMemory.find(myKey);
     bool needsAssignment = true;
 
     if (currentSlotIt != sExplosionSlotMemory.end())
@@ -942,12 +945,12 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
     {
         int32 const slot = assignSlot();
         if (slot >= 0)
-            sExplosionSlotMemory[bot->GetGUID()] = slot;
+            sExplosionSlotMemory[myKey] = slot;
         else
-            sExplosionSlotMemory.erase(bot->GetGUID());
+            sExplosionSlotMemory.erase(myKey);
     }
 
-    auto finalSlotIt = sExplosionSlotMemory.find(bot->GetGUID());
+    auto finalSlotIt = sExplosionSlotMemory.find(myKey);
 
     Position escapePos;
     if (finalSlotIt != sExplosionSlotMemory.end())
@@ -973,7 +976,7 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
     }
 
     _hasEscape = false;
-    sExplosionSlotMemory.erase(bot->GetGUID());
+    sExplosionSlotMemory.erase(myKey);
     return false;
 }
 
@@ -981,9 +984,11 @@ bool IccRotfaceAvoidVileGasAction::Execute(Event /*event*/)
 {
     uint32 const now = getMSTime();
 
+    auto vgIt = IcecrownHelpers::rotfaceVileGas.find(bot->GetMap()->GetInstanceId());
     bool const isVictim =
-        IcecrownHelpers::rotfaceVileGas.victimGuid == bot->GetGUID() &&
-        getMSTimeDiff(IcecrownHelpers::rotfaceVileGas.castTime, now) < 8000;
+        vgIt != IcecrownHelpers::rotfaceVileGas.end() &&
+        vgIt->second.victimGuid == bot->GetGUID() &&
+        getMSTimeDiff(vgIt->second.castTime, now) < 8000;
     bool const hasAura = botAI->HasAura("Vile Gas", bot);
 
     auto& waitMap = IcecrownHelpers::rotfaceVileGasWaitUntil;

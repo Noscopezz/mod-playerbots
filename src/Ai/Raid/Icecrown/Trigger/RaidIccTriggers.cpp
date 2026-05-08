@@ -350,9 +350,11 @@ bool IccRotfaceAvoidVileGasTrigger::IsActive()
 
     uint32 const now = getMSTime();
 
+    auto vgIt = IcecrownHelpers::rotfaceVileGas.find(bot->GetMap()->GetInstanceId());
     bool const isVictim =
-        IcecrownHelpers::rotfaceVileGas.victimGuid == bot->GetGUID() &&
-        getMSTimeDiff(IcecrownHelpers::rotfaceVileGas.castTime, now) < 8000;
+        vgIt != IcecrownHelpers::rotfaceVileGas.end() &&
+        vgIt->second.victimGuid == bot->GetGUID() &&
+        getMSTimeDiff(vgIt->second.castTime, now) < 8000;
     if (isVictim)
         return true;
 

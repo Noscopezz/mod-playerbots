@@ -47,7 +47,7 @@ namespace IcecrownHelpers
         ObjectGuid victimGuid;
         uint32 castTime;
     };
-    extern VileGasVictim rotfaceVileGas;
+    extern std::unordered_map<uint32, VileGasVictim> rotfaceVileGas;
 
     // Rotface vile gas hold-at-safe-spot state. When the victim bot reaches
     // its safe spot we stamp now+3000ms so the multiplier blocks any other
