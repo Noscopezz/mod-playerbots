@@ -7,8 +7,8 @@
 #include "NearestNpcsValue.h"
 #include "ObjectAccessor.h"
 #include "Playerbots.h"
-#include "RaidIccActions.h"
-#include "RaidIccTriggers.h"
+#include "IccA.h"
+#include "IccT.h"
 #include "RtiValue.h"
 #include "Vehicle.h"
 

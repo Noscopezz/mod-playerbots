@@ -1,9 +1,9 @@
-#ifndef _PLAYERBOT_RAIDICCACTIONCONTEXT_H
-#define _PLAYERBOT_RAIDICCACTIONCONTEXT_H
+#ifndef _PLAYERBOT_ICCACTIONCONTEXT_H
+#define _PLAYERBOT_ICCACTIONCONTEXT_H
 
 #include "Action.h"
 #include "NamedObjectContext.h"
-#include "RaidIccActions.h"
+#include "IccA.h"
 
 class RaidIccActionContext : public NamedObjectContext<Action>
 {

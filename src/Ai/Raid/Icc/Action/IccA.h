@@ -1,5 +1,5 @@
-#ifndef _PLAYERBOT_RAIDICCACTIONS_H
-#define _PLAYERBOT_RAIDICCACTIONS_H
+#ifndef _PLAYERBOT_ICCA_H
+#define _PLAYERBOT_ICCA_H
 
 #include <set>
 
@@ -11,7 +11,7 @@
 #include "LastMovementValue.h"
 #include "ObjectGuid.h"
 #include "PlayerbotAIConfig.h"
-#include "RaidIccStrategy.h"
+#include "IccS.h"
 #include "ScriptedCreature.h"
 #include "SharedDefines.h"
 #include "Trigger.h"
@@ -19,7 +19,7 @@
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "Vehicle.h"
-#include "RaidIccTriggers.h"
+#include "IccT.h"
 
 inline const Position ICC_LM_TANK_POSITION = Position(-391.0f, 2259.0f, 42.0f);
 inline const Position ICC_LM_BONE_STORM_AT_POSITION = Position(-390.02332f, 2179.3481f, 41.96729f);

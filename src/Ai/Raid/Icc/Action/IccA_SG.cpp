@@ -1,4 +1,4 @@
-#include "RaidIccActions.h"
+#include "IccA.h"
 #include <limits>
 #include "NearestNpcsValue.h"
 #include "ObjectAccessor.h"
@@ -7,7 +7,7 @@
 #include "RtiValue.h"
 #include "GenericSpellActions.h"
 #include "GenericActions.h"
-#include "RaidIccTriggers.h"
+#include "IccT.h"
 #include "Multiplier.h"
 
 bool IccSindragosaGroupPositionAction::Execute(Event /*event*/)

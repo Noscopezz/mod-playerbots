@@ -1,6 +1,6 @@
-#include "RaidIccScripts.h"
+#include "IccScripts.h"
 #include "Player.h"
-#include "RaidIccTriggers.h"
+#include "IccT.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellInfo.h"

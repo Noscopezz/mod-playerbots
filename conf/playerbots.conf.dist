@@ -552,7 +552,9 @@ AiPlayerbot.AutoGearCommand = 1
 # Default: 1 (enabled)
 AiPlayerbot.AutoGearCommandAltBots = 1
 
-# If 1 (enabled) command /p bisicc will give bots BiS gear with generic enchants and gems if Autogear is enabled.
+# If 1 (enabled) command /p bisicc will give bots BiS gear with generic enchants and gems if Autogear = 1
+# if AutoGearQualityLimit = 4 if AutoGearScoreLimit = 290 if bot level is 80.
+# If AutoGearCommandAltBots = 1 altbots can use it also.
 # Default: 0 (disabled)
 AiPlayerbot.IccBisCommand = 0
 
@@ -2155,6 +2157,27 @@ AiPlayerbot.RandomClassSpecIndex.11.6 = 6
 #
 ####################################################################################################
 
+###################################
+#                                 #
+# RAIDS                           #
+#                                 #
+###################################
+
+####################################################################################################
+#
+#
+#
+
+# Enable buffs in ICC to make Heroic easier and more casual. Default is 1.
+# 30% more damage, 40% damage reduction (tank bots), increased all resistances, reduced threat for
+# non tank bots, increased threat for tank bots.
+# Buffs will be applied on LDW, PP, Sindragosa and Lich King.
+AiPlayerbot.EnableICCBuffs = 1
+
+#
+#
+#
+####################################################################################################
 
 ###################################
 #                                 #
@@ -2430,9 +2453,3 @@ AiPlayerbot.TargetPosRecalcDistance = 0.1
 
 # Allow bots to be summoned near innkeepers
 AiPlayerbot.SummonAtInnkeepersEnabled = 1
-
-# Enable buffs in ICC to make Heroic easier and more casual.
-# 30% more damage, 40% damage reduction (tank bots), increased all resistances, reduced threat for non tank bots, increased threat for tank bots.
-# Buffs will be applied on PP, Sindragosa and Lich King
-
-AiPlayerbot.EnableICCBuffs = 1

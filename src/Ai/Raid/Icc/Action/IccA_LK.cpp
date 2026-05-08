@@ -1,4 +1,4 @@
-#include "RaidIccActions.h"
+#include "IccA.h"
 #include "NearestNpcsValue.h"
 #include "ObjectAccessor.h"
 #include "Playerbots.h"
@@ -6,8 +6,8 @@
 #include "RtiValue.h"
 #include "GenericSpellActions.h"
 #include "GenericActions.h"
-#include "RaidIccTriggers.h"
-#include "RaidIccScripts.h"
+#include "IccT.h"
+#include "IccScripts.h"
 #include "Multiplier.h"
 
 static bool IsLkShambling(uint32 entry)

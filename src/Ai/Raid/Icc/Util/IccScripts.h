@@ -1,5 +1,5 @@
-#ifndef _PLAYERBOT_RAIDICCSCRIPTS_H
-#define _PLAYERBOT_RAIDICCSCRIPTS_H
+#ifndef _PLAYERBOT_ICCSCRIPTS_H
+#define _PLAYERBOT_ICCSCRIPTS_H
 
 #include <map>
 #include <unordered_map>

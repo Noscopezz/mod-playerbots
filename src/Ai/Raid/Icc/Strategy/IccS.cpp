@@ -1,6 +1,6 @@
-#include "RaidIccStrategy.h"
+#include "IccS.h"
 
-#include "RaidIccMultipliers.h"
+#include "IccM.h"
 
 void RaidIccStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {

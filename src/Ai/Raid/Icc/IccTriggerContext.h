@@ -1,8 +1,8 @@
-#ifndef _PLAYERBOT_RAIDICCTRIGGERCONTEXT_H
-#define _PLAYERBOT_RAIDICCTRIGGERCONTEXT_H
+#ifndef _PLAYERBOT_ICCTRIGGERCONTEXT_H
+#define _PLAYERBOT_ICCTRIGGERCONTEXT_H
 
 #include "NamedObjectContext.h"
-#include "RaidIccTriggers.h"
+#include "IccT.h"
 
 class RaidIccTriggerContext : public NamedObjectContext<Trigger>
 {
