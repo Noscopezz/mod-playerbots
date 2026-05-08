@@ -333,7 +333,7 @@ bool BisGearAction::Execute(Event /*event*/)
         if (slot == EQUIPMENT_SLOT_TABARD || slot == EQUIPMENT_SLOT_BODY)
             continue;
 
-        if (Item* old = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+        if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
             bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
     }
 
