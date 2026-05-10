@@ -837,7 +837,6 @@ public:
     bool Execute(Event event) override;
 
     bool HandleTeleportationFixes(Difficulty diff, Unit* terenas);
-    bool HandleSpiritBombAvoidance(Difficulty diff, Unit* terenas);
     bool HandleHeroicNonTankPositioning(Difficulty diff, Unit* terenas);
     bool HandleSpiritMarkingAndTargeting(Difficulty diff, Unit* terenas);
     bool HandleQuakeMechanics(Unit* boss);
@@ -863,6 +862,16 @@ public:
     std::pair<float, float> DefileAwareStep(float tx, float ty,
                                            std::vector<Unit*> const& defiles,
                                            Difficulty diff);
+};
+
+class IccLichKingSpiritBombAction : public MovementAction
+{
+public:
+    IccLichKingSpiritBombAction(PlayerbotAI* botAI)
+        : MovementAction(botAI, "icc lich king spirit bomb") {}
+    bool Execute(Event event) override;
+
+    static bool IsBombThreatActive(PlayerbotAI* botAI, Player* bot);
 };
 
 #endif

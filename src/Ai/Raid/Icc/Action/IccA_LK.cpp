@@ -2053,10 +2053,6 @@ bool IccLichKingAddsAction::Execute(Event /*event*/)
     if (HandleTeleportationFixes(diff, terenas))
         return true;
 
-    // Heroic: Terenas / spirit phase
-    if (HandleSpiritBombAvoidance(diff, terenas))
-        return true;
-
     HandleHeroicNonTankPositioning(diff, terenas);
     HandleSpiritMarkingAndTargeting(diff, terenas);
 
@@ -2100,26 +2096,27 @@ bool IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
 
     // Normal mode: snap back if teleported far outside the encounter area
     // (Harvest Soul victim exits Frostmourne room). Land on the main tank,
-    // falling back to assist tank, then the fixed adds anchor.
+    // falling back to assist tank, then the fixed adds anchor. Iterate group
+    // directly so distance/LOS gating in PartyMemberValue::Check doesn't hide
+    // a far-away main tank.
     if (!IsHeroicLk(diff) && std::abs(bot->GetPositionY() - (-2095.7915f)) > MAX_Y_DRIFT)
     {
-        Unit* mainTank = AI_VALUE(Unit*, "main tank");
-        Unit* assistTank = nullptr;
+        Player* mainTank = nullptr;
+        Player* assistTank = nullptr;
         if (Group* group = bot->GetGroup())
         {
             for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
             {
                 Player* member = itr->GetSource();
-                if (member && member->IsAlive() && botAI->IsAssistTank(member))
-                {
+                if (!member || !member->IsAlive())
+                    continue;
+                if (!mainTank && botAI->IsMainTank(member))
+                    mainTank = member;
+                else if (!assistTank && botAI->IsAssistTank(member))
                     assistTank = member;
-                    break;
-                }
             }
         }
-        Unit* anchor = (mainTank && mainTank->IsAlive())
-            ? mainTank
-            : assistTank;
+        Unit* anchor = mainTank ? static_cast<Unit*>(mainTank) : static_cast<Unit*>(assistTank);
 
         if (anchor)
             bot->TeleportTo(bot->GetMapId(), anchor->GetPositionX(), anchor->GetPositionY(),
@@ -2143,11 +2140,27 @@ bool IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
         return true;
     }
 
-    // Heroic: keep bot near Terenas during Harvest Soul
+    // Heroic: keep bot near main tank during Harvest Soul (fall back to Terenas).
+    // Resolve main tank via group iteration so distance/LOS gating in
+    // PartyMemberValue::Check doesn't hide a far-away main tank.
     if (terenas && botAI->GetAura("Harvest Soul", bot, false, false) &&
         std::abs(bot->GetPositionZ() - SPIRIT_Z) > SPIRIT_Z_TOLERANCE)
     {
-        bot->TeleportTo(bot->GetMapId(), terenas->GetPositionX(), terenas->GetPositionY(),
+        Player* mainTank = nullptr;
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+            {
+                Player* member = itr->GetSource();
+                if (member && member->IsAlive() && botAI->IsMainTank(member))
+                {
+                    mainTank = member;
+                    break;
+                }
+            }
+        }
+        Unit* anchor = mainTank ? static_cast<Unit*>(mainTank) : terenas;
+        bot->TeleportTo(bot->GetMapId(), anchor->GetPositionX(), anchor->GetPositionY(),
                         SPIRIT_Z, bot->GetOrientation());
         return true;
     }
@@ -2155,10 +2168,46 @@ bool IccLichKingAddsAction::HandleTeleportationFixes(Difficulty diff, Unit* tere
     return false;
 }
 
-bool IccLichKingAddsAction::HandleSpiritBombAvoidance(Difficulty diff, Unit* terenas)
+bool IccLichKingSpiritBombAction::IsBombThreatActive(PlayerbotAI* botAI, Player* bot)
 {
+    if (!botAI || !bot || !botAI->IsMainTank(bot))
+        return false;
+
+    Difficulty const diff = bot->GetMap() ? bot->GetMap()->GetDifficulty() : RAID_DIFFICULTY_10MAN_NORMAL;
+    if (!IsHeroicLk(diff))
+        return false;
+
+    if (!bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f))
+        return false;
+
+    GuidVector const& npcs = botAI->GetAiObjectContext()->GetValue<GuidVector>("nearest hostile npcs")->Get();
+    for (ObjectGuid const& guid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(guid);
+        if (unit && unit->IsAlive() && unit->GetEntry() == NPC_SPIRIT_BOMB)
+            return true;
+    }
+
+    return false;
+}
+
+bool IccLichKingSpiritBombAction::Execute(Event event)
+{
+    Difficulty const diff = bot->GetMap() ? bot->GetMap()->GetDifficulty() : RAID_DIFFICULTY_10MAN_NORMAL;
+    Unit* terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
+
     if (!botAI->IsMainTank(bot) || !terenas || !IsHeroicLk(diff))
         return false;
+
+    // Snap back to spirit-room Z if glitched through the floor
+    static constexpr float SPIRIT_Z = 1049.865f;
+    static constexpr float SPIRIT_Z_TOLERANCE = 5.0f;
+    if (std::abs(bot->GetPositionZ() - SPIRIT_Z) > SPIRIT_Z_TOLERANCE)
+    {
+        bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(),
+                        SPIRIT_Z, bot->GetOrientation());
+        return true;
+    }
 
     static constexpr float SAFE_DIST = 14.0f;
     static constexpr float SAFE_HEIGHT = 12.0f;

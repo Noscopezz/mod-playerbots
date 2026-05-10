@@ -1196,3 +1196,17 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
 
     return 1.0f;
 }
+
+float IccLichKingSpiritBombMultiplier::GetValue(Action* action)
+{
+    if (!IccLichKingSpiritBombAction::IsBombThreatActive(botAI, bot))
+        return 1.0f;
+
+    // Allowlist: only the avoidance move and facing run during a bomb threat.
+    // Everything else is suppressed so the avoidance move sticks.
+    if (dynamic_cast<IccLichKingSpiritBombAction*>(action) ||
+        dynamic_cast<SetFacingTargetAction*>(action))
+        return 1.0f;
+
+    return 0.0f;
+}

@@ -673,4 +673,11 @@ public:
     bool IsActive() override;
 };
 
+class IccLichKingSpiritBombTrigger : public Trigger
+{
+public:
+    IccLichKingSpiritBombTrigger(PlayerbotAI* botAI) : Trigger(botAI, "icc lich king spirit bomb") {}
+    bool IsActive() override;
+};
+
 #endif

@@ -1417,3 +1417,8 @@ bool IccLichKingAddsTrigger::IsActive()
 
     return true;
 }
+
+bool IccLichKingSpiritBombTrigger::IsActive()
+{
+    return IccLichKingSpiritBombAction::IsBombThreatActive(botAI, bot);
+}

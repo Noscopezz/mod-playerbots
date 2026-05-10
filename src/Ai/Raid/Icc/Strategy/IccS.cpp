@@ -178,6 +178,9 @@ void RaidIccStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode("icc lich king adds",
         { NextAction("icc lich king adds", ACTION_RAID +2) }));
+
+    triggers.push_back(new TriggerNode("icc lich king spirit bomb",
+        { NextAction("icc lich king spirit bomb", ACTION_RAID +7) }));
 }
 
 void RaidIccStrategy::InitMultipliers(std::vector<Multiplier*>& multipliers)
@@ -193,5 +196,6 @@ void RaidIccStrategy::InitMultipliers(std::vector<Multiplier*>& multipliers)
     multipliers.push_back(new IccValithriaDreamCloudMultiplier(botAI));
     multipliers.push_back(new IccSindragosaMultiplier(botAI));
     multipliers.push_back(new IccLichKingAddsMultiplier(botAI));
+    multipliers.push_back(new IccLichKingSpiritBombMultiplier(botAI));
     multipliers.push_back(new IccGunshipMultiplier(botAI));
 }

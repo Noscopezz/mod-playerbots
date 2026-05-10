@@ -99,6 +99,13 @@ public:
     virtual float GetValue(Action* action);
 };
 
+class IccLichKingSpiritBombMultiplier : public Multiplier
+{
+public:
+    IccLichKingSpiritBombMultiplier(PlayerbotAI* ai) : Multiplier(ai, "icc lich king spirit bomb") {}
+    virtual float GetValue(Action* action);
+};
+
 //GUNSHIP
 class IccGunshipMultiplier : public Multiplier
 {
