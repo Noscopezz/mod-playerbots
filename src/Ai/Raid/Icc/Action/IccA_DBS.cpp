@@ -288,29 +288,119 @@ bool IccDbsTankPositionAction::PositionInRangedFormation()
     if (!group)
         return false;
 
-    // Find this bot's position among ranged/healers in the group
-    int32 rangedIndex = -1;
+    int32 const totalSlots = 15;  // 3 rows x 5 cols
+    uint32 const dbsInstanceId = bot->GetInstanceId();
+
+    // Persistent per-bot slot memory shared across all bots.
+    // Keyed per-instance to avoid cross-instance pollution.
+    static std::map<std::pair<uint32, ObjectGuid>, int> botSlotMemory;
+    auto myKey = std::make_pair(dbsInstanceId, bot->GetGUID());
+
+    // Single pass: collect natural index (alive ranged/healer non-tank order)
+    // and other bots' reserved slots.
+    int32 myIndex = -1;
     int32 currentIndex = 0;
+    std::vector<int> reservedSlots;
 
     for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
         Player* member = itr->GetSource();
-        if (!member || !member->IsAlive())
+        if (!member)
+            continue;
+
+        if (member != bot)
+        {
+            auto it = botSlotMemory.find(std::make_pair(dbsInstanceId, member->GetGUID()));
+            if (it != botSlotMemory.end() && it->second >= 0 && it->second < totalSlots)
+                reservedSlots.push_back(it->second);
+        }
+
+        if (!member->IsAlive())
             continue;
 
         if ((botAI->IsRanged(member) || botAI->IsHeal(member)) && !botAI->IsTank(member))
         {
             if (member == bot)
             {
-                rangedIndex = currentIndex;
-                break;
+                myIndex = currentIndex;
             }
             currentIndex++;
         }
     }
 
-    if (rangedIndex == -1)
+    if (myIndex == -1)
         return false;
+
+    auto IsReserved = [&](int s) -> bool
+    {
+        return std::find(reservedSlots.begin(), reservedSlots.end(), s) != reservedSlots.end();
+    };
+
+    int myAssignedSlot = -1;
+
+    // Step 1: keep my remembered slot if still in range and not reserved by someone else.
+    auto myMemIt = botSlotMemory.find(myKey);
+    if (myMemIt != botSlotMemory.end())
+    {
+        int prev = myMemIt->second;
+        if (prev >= 0 && prev < totalSlots && !IsReserved(prev))
+            myAssignedSlot = prev;
+    }
+
+    // Step 2: pick first unreserved slot, seeded from my natural index.
+    if (myAssignedSlot < 0)
+    {
+        for (int attempt = 0; attempt < totalSlots; attempt++)
+        {
+            int s = (myIndex + attempt) % totalSlots;
+            if (!IsReserved(s))
+            {
+                myAssignedSlot = s;
+                break;
+            }
+        }
+    }
+
+    // Step 3: overflow (16th+ ranged) - stack with closest non-tank melee bot,
+    // lowest GUID on tie. Forget my slot so others can take it.
+    if (myAssignedSlot < 0)
+    {
+        botSlotMemory.erase(myKey);
+
+        Player* anchor = nullptr;
+        float anchorDist = 0.0f;
+        uint64 anchorGuidRaw = 0;
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (!member || member == bot || !member->IsAlive())
+                continue;
+            if (!botAI->IsMelee(member) || botAI->IsTank(member))
+                continue;
+
+            float d = bot->GetExactDist2d(member);
+            uint64 g = member->GetGUID().GetRawValue();
+            if (!anchor || d < anchorDist || (d == anchorDist && g < anchorGuidRaw))
+            {
+                anchor = member;
+                anchorDist = d;
+                anchorGuidRaw = g;
+            }
+        }
+
+        if (!anchor)
+            return false;
+
+        float ax = anchor->GetPositionX();
+        float ay = anchor->GetPositionY();
+        float az = anchor->GetPositionZ();
+        if (bot->GetExactDist2d(ax, ay) > 3.0f)
+            return MoveTo(bot->GetMapId(), ax, ay, az, false, false, false, true,
+                          MovementPriority::MOVEMENT_COMBAT);
+        return false;
+    }
+
+    botSlotMemory[myKey] = myAssignedSlot;
 
     // Fixed positions calculation
     float const tankToBossAngle = 3.14f;
@@ -319,8 +409,8 @@ bool IccDbsTankPositionAction::PositionInRangedFormation()
     int32 const columnsPerRow = 5;
 
     // Calculate position in a fixed grid (3 rows x 5 columns)
-    int32 const row = rangedIndex / columnsPerRow;
-    int32 const col = rangedIndex % columnsPerRow;
+    int32 const row = myAssignedSlot / columnsPerRow;
+    int32 const col = myAssignedSlot % columnsPerRow;
 
     // Calculate base position
     float xOffset = (col - 2) * spreadDistance;                // Center around tank position
