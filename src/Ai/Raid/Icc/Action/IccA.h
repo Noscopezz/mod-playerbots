@@ -78,8 +78,7 @@ inline const Position ICC_ROTFACE_CENTER_POSITION = Position(4446.0547f, 3144.86
 inline const Position ICC_ROTFACE_CENTER_POSITION_BOSS = Position(4445.656f, 3137.1663f, 360.38565f);
 inline const Position ICC_PUTRICIDE_TANK_POSITION = Position(4373.227f, 3222.058f, 389.4029f);
 inline const Position ICC_PUTRICIDE_GREEN_POSITION = Position(4423.4126f, 3194.2715f, 389.37683f);
-//const Position ICC_PUTRICIDE_GAS3_POSITION = Position(4367.753f, 3177.5894f, 389.39575f);
-//const Position ICC_PUTRICIDE_GAS4_POSITION = Position(4321.8486f, 3206.464f, 389.3982f);
+inline const Position ICC_PUTRICIDE_GATE_POSITION = Position(4356.3345f, 3167.9407f, 389.39825f);
 inline const Position ICC_BPC_OT_POSITION = Position(4649.2236f, 2796.0972f, 361.1815f);
 inline const Position ICC_BPC_MT_POSITION = Position(4648.5674f, 2744.847f, 361.18222f);
 inline const Position ICC_BPC_CENTER_POSITION = Position(4638.7056f, 2769.3713f, 361.17108f);
@@ -393,12 +392,14 @@ public:
     IccRotfaceMoveAwayFromExplosionAction(PlayerbotAI* botAI, std::string const name = "icc rotface move away from explosion")
         : MovementAction(botAI, name),
           _escapePosition(0.0f, 0.0f, 0.0f),
-          _hasEscape(false) {}
+          _hasEscape(false),
+          _holdUntil(0) {}
     bool Execute(Event event) override;
 
 private:
     Position _escapePosition;
     bool _hasEscape;
+    uint32 _holdUntil;
 };
 
 class IccRotfaceAvoidVileGasAction : public MovementAction
@@ -809,6 +810,7 @@ public:
     bool Execute(Event event) override;
 
     bool IsPositionSafeFromDefile(float x, float y, float z, float minSafeDistance) const;
+    bool IsPositionSafeFromShadowTraps(float x, float y) const;
     bool IsValidCollectibleAdd(Unit* unit) const;
     bool HandleTankPositioning();
     bool HandleMeleePositioning();

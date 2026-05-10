@@ -859,8 +859,15 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
     bool const castingNow = bigOoze && bigOoze->IsAlive() && bigOoze->HasUnitState(UNIT_STATE_CASTING) &&
                             bigOoze->FindCurrentSpellBySpellId(SPELL_UNSTABLE_OOZE_EXPLOSION);
 
-    if (!castingNow && !_hasEscape)
+    uint32 const now = getMSTime();
+    bool const stillHolding = _hasEscape && _holdUntil != 0 && now < _holdUntil;
+
+    if (!castingNow && !stillHolding)
+    {
+        _hasEscape = false;
+        _holdUntil = 0;
         return false;
+    }
 
     if (!bot->HasAura(SPELL_NITRO_BOOSTS))
         bot->AddAura(SPELL_NITRO_BOOSTS, bot);
@@ -968,6 +975,7 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
 
     if (castingNow)
     {
+        _holdUntil = now + 2000;
         if (bot->GetExactDist2d(_escapePosition) > 2.0f)
             return MoveTo(bot->GetMapId(), _escapePosition.GetPositionX(), _escapePosition.GetPositionY(),
                           _escapePosition.GetPositionZ(), false, false, false, false,
@@ -975,8 +983,10 @@ bool IccRotfaceMoveAwayFromExplosionAction::Execute(Event /*event*/)
         return false;
     }
 
-    _hasEscape = false;
-    sExplosionSlotMemory.erase(myKey);
+    // Cast finished but still inside 2s hold window: stay at escape spot.
+    if (bot->GetExactDist2d(_escapePosition) <= 2.0f)
+        return true;
+
     return false;
 }
 

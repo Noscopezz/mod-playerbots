@@ -498,16 +498,33 @@ bool IccBqlGroupPositionAction::HandleGroupPosition(Unit* boss, Aura* frenzyAura
     // Disarm when boss returns to tank pos (ground phase resumed after landing).
     // Keyed per-instance so concurrent ICC raids don't share the latch.
     static std::map<uint32, bool> groundPhaseEstablishedByInstance;
+    // Tracks airborne state on the previous tick, so we can detect the air->ground edge.
+    static std::map<uint32, bool> bossWasAirborneByInstance;
+    // Armed when boss lands from air, disarmed when boss returns to tank pos.
+    // While armed, bots skip the pre-air center stack so they don't bunch up at center
+    // during the post-air walk-back and die to lingering AoE.
+    static std::map<uint32, bool> postAirLandingByInstance;
     uint32 instanceId = bot->GetInstanceId();
     bool& groundPhaseEstablished = groundPhaseEstablishedByInstance[instanceId];
+    bool& wasAirborne = bossWasAirborneByInstance[instanceId];
+    bool& postAirLanding = postAirLandingByInstance[instanceId];
     float bossFromTank = boss->GetExactDist2d(ICC_BQL_TANK_POSITION);
     float bossFromCenter = boss->GetExactDist2d(ICC_BQL_CENTER_POSITION);
     bool bossAirborne = (boss->GetPositionZ() - ICC_BQL_CENTER_POSITION.GetPositionZ()) > 5.0f;
 
-    if (!bossAirborne && bossFromTank < 10.0f)
-        groundPhaseEstablished = true;
+    // Landing edge: arm post-air latch
+    if (wasAirborne && !bossAirborne)
+        postAirLanding = true;
+    wasAirborne = bossAirborne;
 
-    bool bossMovingToCenter = groundPhaseEstablished && !bossAirborne && bossFromCenter < 20.0f && bossFromTank > 10.0f;
+    if (!bossAirborne && bossFromTank < 10.0f)
+    {
+        groundPhaseEstablished = true;
+        postAirLanding = false;
+    }
+
+    bool bossMovingToCenter = groundPhaseEstablished && !bossAirborne && !postAirLanding &&
+                              bossFromCenter < 20.0f && bossFromTank > 10.0f;
     bool isAirPhase = bossAirborne || bossMovingToCenter;
 
     // Pre-airborne: nitro boost + move all bots to center (not ring slots yet)

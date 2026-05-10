@@ -322,10 +322,24 @@ Position IccPutricideGrowingOozePuddleAction::CalculateSafeMovePosition(Unit* cl
 
     Unit* boss = AI_VALUE2(Unit*, "find target", "professor putricide");
     bool const isMainTank = botAI->IsMainTank(bot) && !(boss && boss->HealthBelowPct(35));
+    bool const isP3Tank = botAI->IsMainTank(bot) && boss && boss->HealthBelowPct(35);
 
     float botX = bot->GetPositionX();
     float botY = bot->GetPositionY();
     float botZ = bot->GetPositionZ();
+
+    float gateDx = 0.0f, gateDy = 0.0f, gateLen = 0.0f;
+    if (isP3Tank)
+    {
+        gateDx = ICC_PUTRICIDE_GATE_POSITION.GetPositionX() - botX;
+        gateDy = ICC_PUTRICIDE_GATE_POSITION.GetPositionY() - botY;
+        gateLen = std::sqrt(gateDx * gateDx + gateDy * gateDy);
+        if (gateLen > 0.01f)
+        {
+            gateDx /= gateLen;
+            gateDy /= gateLen;
+        }
+    }
 
     float currentDistance = std::max(minDistance, bot->GetExactDist2d(closestPuddle));
     float safeDistance = isMainTank ? mainTankSafeDistance : baseRadius;
@@ -387,6 +401,14 @@ Position IccPutricideGrowingOozePuddleAction::CalculateSafeMovePosition(Unit* cl
 
         if (!IsPositionTooCloseToOtherPuddles(testX, testY, closestPuddle) && bot->IsWithinLOS(testX, testY, botZ))
         {
+            if (isP3Tank && gateLen > 0.01f)
+            {
+                float moveDx = testX - botX;
+                float moveDy = testY - botY;
+                if (moveDx * gateDx + moveDy * gateDy <= 0.0f)
+                    continue;
+            }
+
             if (botAI->IsTank(bot))
             {
                 float awayDx = testX - closestPuddle->GetPositionX();
@@ -410,6 +432,16 @@ Position IccPutricideGrowingOozePuddleAction::CalculateSafeMovePosition(Unit* cl
                                    : (botX + dx * moveDistance);
     float fallbackY = insidePuddle ? (closestPuddle->GetPositionY() + dy * fallbackRadius)
                                    : (botY + dy * moveDistance);
+    if (isP3Tank && gateLen > 0.01f)
+    {
+        float fbDx = fallbackX - botX;
+        float fbDy = fallbackY - botY;
+        if (fbDx * gateDx + fbDy * gateDy <= 0.0f)
+        {
+            fallbackX = closestPuddle->GetPositionX() + gateDx * fallbackRadius;
+            fallbackY = closestPuddle->GetPositionY() + gateDy * fallbackRadius;
+        }
+    }
     if (botAI->IsTank(bot))
     {
         float awayDx = fallbackX - closestPuddle->GetPositionX();

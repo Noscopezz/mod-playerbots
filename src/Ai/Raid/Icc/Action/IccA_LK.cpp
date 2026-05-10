@@ -577,6 +577,9 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
                                               PLATFORM_Z, 3.0f))
                     continue;
 
+                if (!IsPositionSafeFromShadowTraps(slot->GetPositionX(), slot->GetPositionY()))
+                    continue;
+
                 float const d = std::hypot(centroid.GetPositionX() - slot->GetPositionX(),
                                            centroid.GetPositionY() - slot->GetPositionY());
                 if (d < bestDist)
@@ -589,7 +592,9 @@ bool IccLichKingWinterAction::Execute(Event /*event*/)
             if (!chosen &&
                 IsPositionSafeFromDefile(ICC_LK_VILE_SPIRIT2_POSITION.GetPositionX(),
                                          ICC_LK_VILE_SPIRIT2_POSITION.GetPositionY(),
-                                         PLATFORM_Z, 3.0f))
+                                         PLATFORM_Z, 3.0f) &&
+                IsPositionSafeFromShadowTraps(ICC_LK_VILE_SPIRIT2_POSITION.GetPositionX(),
+                                              ICC_LK_VILE_SPIRIT2_POSITION.GetPositionY()))
                 chosen = &ICC_LK_VILE_SPIRIT2_POSITION;
 
             winterIt = s_winterStage.emplace(winterKey, WinterStageState{now, chosen}).first;
@@ -767,13 +772,12 @@ bool IccLichKingWinterAction::ClearInvalidTarget()
 
 Position const* IccLichKingWinterAction::GetMainTankPosition()
 {
-    Unit* mainTank = AI_VALUE(Unit*, "main tank");
-
-    // When the MT is alive use its position; when dead fall back to the group
-    // centroid which is stable even as individual players die.
-    Position ref = mainTank
-        ? Position(mainTank->GetPositionX(), mainTank->GetPositionY(), mainTank->GetPositionZ())
-        : ComputeGroupCentroid(bot);
+    // Use group centroid so the chosen frost slot follows the majority of the
+    // raid, not the tanks. Non-tanks can't survive Remorseless Winter ticks
+    // while traversing the platform, so dragging them to a far slot just
+    // because tanks parked there gets them killed. Tanks tolerate a few
+    // ticks and will reroute to the majority slot too.
+    Position ref = ComputeGroupCentroid(bot);
 
     return &SelectClosestOf3(ref, ICC_LK_FROST1_POSITION, ICC_LK_FROST2_POSITION, ICC_LK_FROST3_POSITION);
 }
@@ -830,6 +834,30 @@ bool IccLichKingWinterAction::IsPositionSafeFromDefile(float x, float y, float /
     return true;
 }
 
+bool IccLichKingWinterAction::IsPositionSafeFromShadowTraps(float x, float y) const
+{
+    // Shadow trap has a fixed 12 yd lethal radius (matches the SAFE_DISTANCE
+    // used by IccLichKingShadowTrapAction).
+    static constexpr float TRAP_SAFE_RADIUS = 12.0f;
+
+    GuidVector const& npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+
+    for (ObjectGuid const& guid : npcs)
+    {
+        Unit* unit = botAI->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || unit->GetEntry() != NPC_SHADOW_TRAP)
+            continue;
+
+        float const dx = x - unit->GetPositionX();
+        float const dy = y - unit->GetPositionY();
+
+        if (std::sqrt(dx * dx + dy * dy) < TRAP_SAFE_RADIUS)
+            return false;
+    }
+
+    return true;
+}
+
 bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, float targetZ, bool forced)
 {
     float const dx = targetX - bot->GetPositionX();
@@ -844,9 +872,10 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
         : MovementPriority::MOVEMENT_COMBAT;
 
     if (IsPositionSafeFromDefile(targetX, targetY, targetZ, 3.0f) &&
+        IsPositionSafeFromShadowTraps(targetX, targetY) &&
         bot->IsWithinLOS(targetX, targetY, targetZ))
     {
-        // Sample the straight-line path for defile crossings
+        // Sample the straight-line path for defile and shadow trap crossings
         bool pathSafe = true;
         static constexpr float PATH_CHECK_INTERVAL = 3.0f;
         int const numChecks = std::max(1, static_cast<int>(dist / PATH_CHECK_INTERVAL));
@@ -857,7 +886,8 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
             float const checkX = bot->GetPositionX() + dx * t;
             float const checkY = bot->GetPositionY() + dy * t;
 
-            if (!IsPositionSafeFromDefile(checkX, checkY, targetZ, 2.0f))
+            if (!IsPositionSafeFromDefile(checkX, checkY, targetZ, 2.0f) ||
+                !IsPositionSafeFromShadowTraps(checkX, checkY))
             {
                 pathSafe = false;
                 break;
@@ -869,10 +899,10 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
             MoveTo(bot->GetMapId(), targetX, targetY, targetZ, false, false, false, true, priority, true, false);
             return true;
         }
-        // Path crosses defile — fall through to arc-stepping logic
+        // Path crosses defile or shadow trap — fall through to arc-stepping logic
     }
 
-    // Arc-stepping: rotate around the movement direction to find a way around defile
+    // Arc-stepping: rotate around the movement direction to find a way around defile/traps
     static constexpr int STEPS = 8;
     static constexpr float STEP_DIST = 8.0f;
 
@@ -891,6 +921,8 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
             float const testY = bot->GetPositionY() + (dirX * sinA + dirY * cosA) * STEP_DIST;
 
             if (!IsPositionSafeFromDefile(testX, testY, targetZ, 3.0f))
+                continue;
+            if (!IsPositionSafeFromShadowTraps(testX, testY))
                 continue;
             if (!bot->IsWithinLOS(testX, testY, targetZ))
                 continue;
@@ -911,6 +943,8 @@ bool IccLichKingWinterAction::TryMoveToPosition(float targetX, float targetY, fl
         bot->UpdateAllowedPositionZ(probeX, probeY, probeZ);
 
         if (!IsPositionSafeFromDefile(probeX, probeY, probeZ, 3.0f))
+            continue;
+        if (!IsPositionSafeFromShadowTraps(probeX, probeY))
             continue;
         if (!bot->IsWithinLOS(probeX, probeY, probeZ))
             continue;
