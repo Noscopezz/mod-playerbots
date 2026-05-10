@@ -2331,6 +2331,59 @@ bool IccLichKingSpiritBombAction::Execute(Event event)
             break;
     }
 
+    // Fallback: surrounded with no clean path. Pick direction where the
+    // blocking bomb is highest on Z axis and move thru there
+    if (!found)
+    {
+        float bestEscapeZ = std::numeric_limits<float>::max();
+        for (float const radius : SearchDistances)
+        {
+            for (int i = 0; i < ANGLE_COUNT; ++i)
+            {
+                float const angle = i * 2.0f * float(M_PI) / ANGLE_COUNT;
+                float const testX = bot->GetPositionX() + radius * std::cos(angle);
+                float const testY = bot->GetPositionY() + radius * std::sin(angle);
+                float testZ = bot->GetPositionZ();
+
+                bot->UpdateAllowedPositionZ(testX, testY, testZ);
+
+                if (std::abs(testZ - bot->GetPositionZ()) >= MAX_HEIGHT_DIFF)
+                    continue;
+                if (!bot->IsWithinLOS(testX, testY, testZ))
+                    continue;
+
+                // Highest blocking bomb on the line from bot to test pos
+                float worstBombZ = -std::numeric_limits<float>::max();
+                bool blocked = false;
+                for (Unit const* bomb : bombs)
+                {
+                    float const hDist = std::hypot(testX - bomb->GetPositionX(),
+                                                   testY - bomb->GetPositionY());
+                    if (hDist < SAFE_DIST)
+                    {
+                        blocked = true;
+                        worstBombZ = std::max(worstBombZ, bomb->GetPositionZ());
+                    }
+                }
+
+                if (!blocked)
+                    continue;
+
+                if (worstBombZ < bestEscapeZ)
+                {
+                    bestEscapeZ = worstBombZ;
+                    bestX = testX;
+                    bestY = testY;
+                    bestZ = testZ;
+                    found = true;
+                }
+            }
+
+            if (found)
+                break;
+        }
+    }
+
     if (found && bot->IsWithinLOS(bestX, bestY, bestZ) &&
         std::abs(bestZ - bot->GetPositionZ()) <= MAX_HEIGHT_DIFF)
     {
