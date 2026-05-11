@@ -342,8 +342,9 @@ Position IccPutricideGrowingOozePuddleAction::CalculateSafeMovePosition(Unit* cl
     }
 
     float currentDistance = std::max(minDistance, bot->GetExactDist2d(closestPuddle));
-    float safeDistance = isMainTank ? mainTankSafeDistance : baseRadius;
-    if (!isMainTank)
+    bool const useTankSafeDistance = isMainTank || isP3Tank;
+    float safeDistance = useTankSafeDistance ? mainTankSafeDistance : baseRadius;
+    if (!useTankSafeDistance)
     {
         if (Aura* grow = closestPuddle->GetAura(SPELL_GROW_AURA))
             safeDistance += (grow->GetStackAmount() * stackMultiplier);
@@ -409,6 +410,9 @@ Position IccPutricideGrowingOozePuddleAction::CalculateSafeMovePosition(Unit* cl
                     continue;
             }
 
+            if (PathCrossesAnyPuddle(botX, botY, testX, testY, nullptr))
+                continue;
+
             if (botAI->IsTank(bot))
             {
                 float awayDx = testX - closestPuddle->GetPositionX();
@@ -456,6 +460,51 @@ Position IccPutricideGrowingOozePuddleAction::CalculateSafeMovePosition(Unit* cl
         }
     }
     return Position(fallbackX, fallbackY, botZ);
+}
+
+bool IccPutricideGrowingOozePuddleAction::PathCrossesAnyPuddle(float fromX, float fromY, float toX, float toY, Unit* ignorePuddle)
+{
+    constexpr float baseRadius = 2.0f;
+    constexpr float stackMultiplier = 0.8f;
+    constexpr float mainTankSafeDistance = 10.0f;
+
+    bool const useTankSafeDistance = botAI->IsMainTank(bot);
+
+    float segDx = toX - fromX;
+    float segDy = toY - fromY;
+    float segLenSq = segDx * segDx + segDy * segDy;
+    if (segLenSq < 0.01f)
+        return false;
+
+    GuidVector npcs = AI_VALUE(GuidVector, "nearest hostile npcs");
+    for (auto const& npc : npcs)
+    {
+        Unit* unit = botAI->GetUnit(npc);
+        if (!unit || unit == ignorePuddle || unit->GetEntry() != NPC_GROWING_OOZE_PUDDLE)
+            continue;
+
+        float radius = useTankSafeDistance ? mainTankSafeDistance : baseRadius;
+        if (!useTankSafeDistance)
+        {
+            if (Aura* grow = unit->GetAura(SPELL_GROW_AURA))
+                radius += (grow->GetStackAmount() * stackMultiplier);
+        }
+
+        float px = unit->GetPositionX();
+        float py = unit->GetPositionY();
+        float t = ((px - fromX) * segDx + (py - fromY) * segDy) / segLenSq;
+        if (t < 0.0f) t = 0.0f;
+        else if (t > 1.0f) t = 1.0f;
+
+        float closestX = fromX + segDx * t;
+        float closestY = fromY + segDy * t;
+        float ddx = closestX - px;
+        float ddy = closestY - py;
+        if (ddx * ddx + ddy * ddy < radius * radius)
+            return true;
+    }
+
+    return false;
 }
 
 bool IccPutricideGrowingOozePuddleAction::IsPositionTooCloseToOtherPuddles(float x, float y, Unit* ignorePuddle)

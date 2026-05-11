@@ -435,6 +435,7 @@ public:
     Unit* FindClosestThreateningPuddle();
     Position CalculateSafeMovePosition(Unit* closestPuddle);
     bool IsPositionTooCloseToOtherPuddles(float x, float y, Unit* ignorePuddle);
+    bool PathCrossesAnyPuddle(float fromX, float fromY, float toX, float toY, Unit* ignorePuddle);
 };
 
 class IccPutricideVolatileOozeAction : public AttackAction
