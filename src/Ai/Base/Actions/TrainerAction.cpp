@@ -11,6 +11,7 @@
 #include "Event.h"
 #include "PlayerbotFactory.h"
 #include "Playerbots.h"
+#include "ReputationMgr.h"
 #include "Trainer.h"
 
 bool TrainerAction::Execute(Event event)
@@ -327,6 +328,15 @@ bool BisGearAction::Execute(Event /*event*/)
     }
 
     botAI->TellMaster("Applying BiS gear");
+
+    // Grant Ashen Verdict Exalted so the bot can equip the BiS Ashen Band rings.
+    if (FactionEntry const* fac = sFactionStore.LookupEntry(1156))
+    {
+        int32 exaltedRep = ReputationMgr::ReputationRankToStanding(
+            static_cast<ReputationRank>(REP_EXALTED - 1)) + 1;
+        if (bot->GetReputationMgr().GetReputation(fac) < exaltedRep)
+            bot->GetReputationMgr().SetReputation(fac, exaltedRep);
+    }
 
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
     {
