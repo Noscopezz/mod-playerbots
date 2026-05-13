@@ -16,7 +16,7 @@ CREATE TABLE `playerbots_bis` (
     `slot`       TINYINT UNSIGNED NOT NULL,
     `faction`    TINYINT UNSIGNED NOT NULL DEFAULT 0,
     `item_level` SMALLINT UNSIGNED NOT NULL,
-    `item`       INT UNSIGNED NOT NULL,
+    `item_id`       INT UNSIGNED NOT NULL,
     `phase`      VARCHAR(32) NOT NULL DEFAULT '',
     `class_name`   VARCHAR(16) NOT NULL,
     `spec_name`    VARCHAR(32) NOT NULL,
