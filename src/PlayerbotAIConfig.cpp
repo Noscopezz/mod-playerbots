@@ -596,7 +596,7 @@ bool PlayerbotAIConfig::Initialize()
 
     autoGearCommand = sConfigMgr->GetOption<int32>("AiPlayerbot.AutoGearCommand", 1);
     autoGearCommandAltBots = sConfigMgr->GetOption<int32>("AiPlayerbot.AutoGearCommandAltBots", 1);
-    iccBisCommand = sConfigMgr->GetOption<int32>("AiPlayerbot.IccBisCommand", 0);
+    bisCommand = sConfigMgr->GetOption<int32>("AiPlayerbot.BisCommand", 0);
     autoGearQualityLimit = sConfigMgr->GetOption<int32>("AiPlayerbot.AutoGearQualityLimit", 3);
     autoGearScoreLimit = sConfigMgr->GetOption<int32>("AiPlayerbot.AutoGearScoreLimit", 0);
 
@@ -694,7 +694,7 @@ bool PlayerbotAIConfig::Initialize()
     PlayerbotGuildMgr::instance().Init();
     sRandomItemMgr.Init();
     sRandomItemMgr.InitAfterAhBot();
-    sBisListMgr->LoadBisList();
+    sBisListMgr->LoadAll();
     PlayerbotTextMgr::instance().LoadBotTexts();
     PlayerbotTextMgr::instance().LoadBotTextChance();
     PlayerbotFactory::Init();

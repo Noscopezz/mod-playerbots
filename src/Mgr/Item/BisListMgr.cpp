@@ -10,14 +10,15 @@
 #include "Log.h"
 #include "QueryResult.h"
 
-void BisListMgr::LoadBisList()
+void BisListMgr::LoadAll()
 {
     _bis.clear();
 
-    QueryResult result = PlayerbotsDatabase.Query("SELECT class, tab, slot, item FROM playerbots_bis_gear");
+    QueryResult result = PlayerbotsDatabase.Query(
+        "SELECT class, tab, slot, faction, item_level, item FROM playerbots_bis");
     if (!result)
     {
-        LOG_INFO("server.loading", "BiS list table is empty or missing");
+        LOG_INFO("server.loading", "playerbots_bis table missing or empty");
         return;
     }
 
@@ -25,23 +26,46 @@ void BisListMgr::LoadBisList()
     do
     {
         Field* fields = result->Fetch();
-        uint8 cls = fields[0].Get<uint8>();
-        uint8 tab = fields[1].Get<uint8>();
-        uint8 slot = fields[2].Get<uint8>();
-        uint32 item = fields[3].Get<uint32>();
+        uint8  cls       = fields[0].Get<uint8>();
+        uint8  tab       = fields[1].Get<uint8>();
+        uint8  slot      = fields[2].Get<uint8>();
+        uint8  faction   = fields[3].Get<uint8>();
+        uint16 itemLevel = fields[4].Get<uint16>();
+        uint32 item      = fields[5].Get<uint32>();
 
-        _bis[MakeKey(cls, tab)][slot] = item;
+        _bis[itemLevel][MakeKey(cls, tab)][faction][slot] = item;
         ++count;
     } while (result->NextRow());
 
-    LOG_INFO("server.loading", "Loaded {} BiS gear entries across {} class/spec combos",
+    LOG_INFO("server.loading", "Loaded {} BiS entries across {} item levels",
              count, static_cast<uint32>(_bis.size()));
 }
 
-std::map<uint8, uint32> BisListMgr::GetBisFor(uint8 cls, uint8 tab) const
+std::map<uint8, uint32> BisListMgr::GetBisFor(uint16 itemLevel, uint8 cls, uint8 tab, uint8 faction) const
 {
-    auto it = _bis.find(MakeKey(cls, tab));
-    if (it == _bis.end())
+    auto ilvlIt = _bis.find(itemLevel);
+    if (ilvlIt == _bis.end())
         return {};
-    return it->second;
+
+    auto comboIt = ilvlIt->second.find(MakeKey(cls, tab));
+    if (comboIt == ilvlIt->second.end())
+        return {};
+
+    std::map<uint8, uint32> result;
+
+    // Base: faction=0 (Both).
+    auto bothIt = comboIt->second.find(0);
+    if (bothIt != comboIt->second.end())
+        result = bothIt->second;
+
+    // Faction-specific overrides Both.
+    if (faction == 1 || faction == 2)
+    {
+        auto facIt = comboIt->second.find(faction);
+        if (facIt != comboIt->second.end())
+            for (auto const& kv : facIt->second)
+                result[kv.first] = kv.second;
+    }
+
+    return result;
 }

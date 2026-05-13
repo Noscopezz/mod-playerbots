@@ -56,8 +56,11 @@ public:
 class BisGearAction : public Action
 {
 public:
-    BisGearAction(PlayerbotAI* botAI) : Action(botAI, "bisicc") {}
+    BisGearAction(PlayerbotAI* botAI) : Action(botAI, "bis") {}
     bool Execute(Event event) override;
+
+private:
+    bool RunAutogearFallback();
 };
 
 #endif

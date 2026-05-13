@@ -272,70 +272,84 @@ bool MaintenanceAction::Execute(Event /*event*/)
     return true;
 }
 
+bool BisGearAction::RunAutogearFallback()
+{
+    if (!sPlayerbotAIConfig.autoGearCommand)
+    {
+        botAI->TellError("autogear command is not allowed, please check the configuration.");
+        return false;
+    }
+
+    botAI->TellMaster("No BiS for your tier/spec/level, check cfg, running autogear instead");
+    uint32 gs = sPlayerbotAIConfig.autoGearScoreLimit == 0
+                    ? 0
+                    : PlayerbotFactory::CalcMixedGearScore(sPlayerbotAIConfig.autoGearScoreLimit,
+                                                           sPlayerbotAIConfig.autoGearQualityLimit);
+    PlayerbotFactory factory(bot, bot->GetLevel(), sPlayerbotAIConfig.autoGearQualityLimit, gs);
+    factory.InitEquipment(true);
+    factory.InitAmmo();
+    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
+        factory.ApplyEnchantAndGemsNew();
+    bot->DurabilityRepairAll(false, 1.0f, false);
+    return true;
+}
+
 bool BisGearAction::Execute(Event /*event*/)
 {
-    if (!sPlayerbotAIConfig.iccBisCommand)
+    if (!sPlayerbotAIConfig.bisCommand)
     {
-        botAI->TellError("bisicc command is not allowed, please check the configuration.");
+        botAI->TellError("bis command is not allowed, please check the configuration.");
         return false;
     }
 
     if (!sPlayerbotAIConfig.autoGearCommandAltBots &&
         !sPlayerbotAIConfig.IsInRandomAccountList(bot->GetSession()->GetAccountId()))
     {
-        botAI->TellError("You cannot use bisicc on alt bots.");
-        return false;
-    }
-
-    if (bot->GetLevel() < 80)
-    {
-        botAI->TellError("Bot must be level 80.");
+        botAI->TellError("You cannot use bis on alt bots.");
         return false;
     }
 
     if (sPlayerbotAIConfig.autoGearQualityLimit < 4)
     {
-        botAI->TellError("AutoGearQualityLimit must be = 4 for ICC BiS.");
-        return false;
-    }
-
-    if (sPlayerbotAIConfig.autoGearScoreLimit != 0 && sPlayerbotAIConfig.autoGearScoreLimit < 290)
-    {
-        botAI->TellError("AutoGearScoreLimit must be = 290 for ICC BiS.");
+        botAI->TellError("AutoGearQualityLimit must be 4 for BiS.");
         return false;
     }
 
     if (sRandomPlayerbotMgr.IsSpecPvp(bot->GetGUID().GetCounter(), bot->getClass()))
     {
-        botAI->TellError("bisicc is PvE only, bot is configured as PvP.");
+        botAI->TellError("bis is PvE only, bot is configured as PvP.");
         return false;
     }
 
+    uint16 ilvl = static_cast<uint16>(sPlayerbotAIConfig.autoGearScoreLimit);
     uint8 cls = bot->getClass();
     uint8 tab = AiFactory::GetPlayerSpecTab(bot);
+    uint8 faction = bot->GetTeamId() == TEAM_ALLIANCE ? 1 : 2;
 
     // Druid Bear (Feral Tank) shares tab 1 with Cat. Use sentinel tab 10 when tank strategy active.
     constexpr uint8 BIS_TAB_DRUID_BEAR = 10;
     std::map<uint8, uint32> bisMap;
     if (cls == CLASS_DRUID && tab == DRUID_TAB_FERAL && PlayerbotAI::IsTank(bot))
-        bisMap = sBisListMgr->GetBisFor(cls, BIS_TAB_DRUID_BEAR);
+        bisMap = sBisListMgr->GetBisFor(ilvl, cls, BIS_TAB_DRUID_BEAR, faction);
     if (bisMap.empty())
-        bisMap = sBisListMgr->GetBisFor(cls, tab);
+        bisMap = sBisListMgr->GetBisFor(ilvl, cls, tab, faction);
+
+    // No rows for this ilvl/class/spec -> autogear fallback.
     if (bisMap.empty())
-    {
-        botAI->TellError("No BiS list for your class/spec");
-        return false;
-    }
+        return RunAutogearFallback();
 
     botAI->TellMaster("Applying BiS gear");
 
-    // Grant Ashen Verdict Exalted so the bot can equip the BiS Ashen Band rings.
-    if (FactionEntry const* fac = sFactionStore.LookupEntry(1156))
+    // ICC-only: grant Ashen Verdict Exalted so Ashen Band rings can equip.
+    if (ilvl == 290)
     {
-        int32 exaltedRep = ReputationMgr::ReputationRankToStanding(
-            static_cast<ReputationRank>(REP_EXALTED - 1)) + 1;
-        if (bot->GetReputationMgr().GetReputation(fac) < exaltedRep)
-            bot->GetReputationMgr().SetReputation(fac, exaltedRep);
+        if (FactionEntry const* fac = sFactionStore.LookupEntry(1156))
+        {
+            int32 exaltedRep = ReputationMgr::ReputationRankToStanding(
+                static_cast<ReputationRank>(REP_EXALTED - 1)) + 1;
+            if (bot->GetReputationMgr().GetReputation(fac) < exaltedRep)
+                bot->GetReputationMgr().SetReputation(fac, exaltedRep);
+        }
     }
 
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
@@ -349,6 +363,15 @@ bool BisGearAction::Execute(Event /*event*/)
 
     for (auto const& kv : bisMap)
     {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(kv.second);
+        if (!proto)
+            continue;
+        if (bot->CanUseItem(proto) != EQUIP_ERR_OK)
+        {
+            LOG_INFO("playerbots", "bis: bot {} cannot use item {} ({})",
+                     bot->GetName(), kv.second, proto->Name1);
+            continue;
+        }
         bot->StoreNewItemInBestSlots(kv.second, 1);
     }
 
