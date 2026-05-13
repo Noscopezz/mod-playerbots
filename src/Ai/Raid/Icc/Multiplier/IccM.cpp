@@ -949,7 +949,6 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
         return 1.0f;
 
     Unit* terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
-    
     if (terenas)
     {
         // Warlocks and melee stay functional (movement + adds action only)
