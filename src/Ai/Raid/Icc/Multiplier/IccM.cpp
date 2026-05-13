@@ -949,6 +949,7 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
         return 1.0f;
 
     Unit* terenas = bot->FindNearestCreature(NPC_TERENAS_MENETHIL_HC, 55.0f);
+    
     if (terenas)
     {
         // Warlocks and melee stay functional (movement + adds action only)
@@ -979,11 +980,7 @@ float IccLichKingAddsMultiplier::GetValue(Action* action)
 
     Unit* boss = AI_VALUE2(Unit*, "find target", "the lich king");
     if (!boss)
-    {
-        if (dynamic_cast<CastStarfallAction*>(action))
-            return 0.0f;
         return 1.0f;
-    }
 
     // Allow cure actions only after a brief delay so the plague can spread once
     if (dynamic_cast<CurePartyMemberAction*>(action) || dynamic_cast<CastCleanseDiseaseAction*>(action) ||
