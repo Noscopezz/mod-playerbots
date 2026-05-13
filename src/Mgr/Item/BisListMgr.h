@@ -22,15 +22,15 @@ public:
     void LoadAll();
 
     // faction: 1=Alliance, 2=Horde. Faction-specific rows override faction=0 (Both).
-    // Returns slot -> itemId for the matching item_level tier. Empty map = no data.
-    std::map<uint8, uint32> GetBisFor(uint16 itemLevel, uint8 cls, uint8 tab, uint8 faction) const;
+    // Returns slot -> itemId for the matching auto_gear_score_limit tier. Empty map = no data.
+    std::map<uint8, uint32> GetBisFor(uint16 autoGearScoreLimit, uint8 cls, uint8 tab, uint8 faction) const;
 
 private:
     BisListMgr() = default;
 
     static uint16 MakeKey(uint8 cls, uint8 tab) { return (uint16(cls) << 8) | tab; }
 
-    // itemLevel -> (cls<<8|tab) -> faction (0/1/2) -> slot -> itemId
+    // autoGearScoreLimit -> (cls<<8|tab) -> faction (0/1/2) -> slot -> itemId
     std::map<uint16, std::map<uint16, std::map<uint8, std::map<uint8, uint32>>>> _bis;
 };
 

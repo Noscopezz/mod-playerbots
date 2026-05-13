@@ -15,7 +15,7 @@ void BisListMgr::LoadAll()
     _bis.clear();
 
     QueryResult result = PlayerbotsDatabase.Query(
-        "SELECT class, tab, slot, faction, item_level, item FROM playerbots_bis");
+        "SELECT class, tab, slot, faction, auto_gear_score_limit, item_id FROM playerbots_bis");
     if (!result)
     {
         LOG_INFO("server.loading", "playerbots_bis table missing or empty");
@@ -30,10 +30,10 @@ void BisListMgr::LoadAll()
         uint8  tab       = fields[1].Get<uint8>();
         uint8  slot      = fields[2].Get<uint8>();
         uint8  faction   = fields[3].Get<uint8>();
-        uint16 itemLevel = fields[4].Get<uint16>();
+        uint16 autoGearScoreLimit = fields[4].Get<uint16>();
         uint32 item      = fields[5].Get<uint32>();
 
-        _bis[itemLevel][MakeKey(cls, tab)][faction][slot] = item;
+        _bis[autoGearScoreLimit][MakeKey(cls, tab)][faction][slot] = item;
         ++count;
     } while (result->NextRow());
 
@@ -41,9 +41,9 @@ void BisListMgr::LoadAll()
              count, static_cast<uint32>(_bis.size()));
 }
 
-std::map<uint8, uint32> BisListMgr::GetBisFor(uint16 itemLevel, uint8 cls, uint8 tab, uint8 faction) const
+std::map<uint8, uint32> BisListMgr::GetBisFor(uint16 autoGearScoreLimit, uint8 cls, uint8 tab, uint8 faction) const
 {
-    auto ilvlIt = _bis.find(itemLevel);
+    auto ilvlIt = _bis.find(autoGearScoreLimit);
     if (ilvlIt == _bis.end())
         return {};
 

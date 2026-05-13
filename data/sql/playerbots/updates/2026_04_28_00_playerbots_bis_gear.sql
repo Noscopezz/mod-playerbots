@@ -1,7 +1,7 @@
 -- BiS gear table for the /p bis party-chat command. Unified across tiers.
--- Lookup keys: (class, tab, slot, faction, item_level).
+-- Lookup keys: (class, tab, slot, faction, auto_gear_score_limit).
 -- faction: 0=Both, 1=Alliance, 2=Horde. Faction-specific overrides Both.
--- item_level: matched exactly against AiPlayerbot.AutoGearScoreLimit.
+-- auto_gear_score_limit: matched exactly against AiPlayerbot.AutoGearScoreLimit.
 -- phase: free-text label for human readability (e.g. 'ICC', 'Pre-Raid').
 -- Slot uses AzerothCore EquipmentSlots enum:
 -- head=0, neck=1, shoulders=2, chest=4, waist=5, legs=6, feet=7, wrists=8, hands=9,
@@ -15,7 +15,7 @@ CREATE TABLE `playerbots_bis` (
     `tab`        TINYINT UNSIGNED NOT NULL,
     `slot`       TINYINT UNSIGNED NOT NULL,
     `faction`    TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    `item_level` SMALLINT UNSIGNED NOT NULL,
+    `auto_gear_score_limit` SMALLINT UNSIGNED NOT NULL,
     `item_id`       INT UNSIGNED NOT NULL,
     `phase`      VARCHAR(32) NOT NULL DEFAULT '',
     `class_name`   VARCHAR(16) NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE `playerbots_bis` (
     `slot_name`    VARCHAR(16) NOT NULL,
     `faction_name` VARCHAR(8)  NOT NULL DEFAULT 'Both',
     `item_name`    VARCHAR(96) NOT NULL,
-    PRIMARY KEY (`class`, `tab`, `slot`, `faction`, `item_level`)
+    PRIMARY KEY (`class`, `tab`, `slot`, `faction`, `auto_gear_score_limit`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
