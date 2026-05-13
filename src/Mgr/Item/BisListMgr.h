@@ -25,6 +25,11 @@ public:
     // Returns slot -> itemId for the matching auto_gear_score_limit tier. Empty map = no data.
     std::map<uint8, uint32> GetBisFor(uint16 autoGearScoreLimit, uint8 cls, uint8 tab, uint8 faction) const;
 
+    // Closest-lower fallback: scan ilvls down from requested to (requested - maxDrop), return first non-empty set.
+    // outResolved receives the matched ilvl (0 if nothing matched within the window).
+    std::map<uint8, uint32> GetBisForNearest(uint16 requestedIlvl, uint16 maxDrop, uint8 cls, uint8 tab,
+                                             uint8 faction, uint16* outResolved = nullptr) const;
+
 private:
     BisListMgr() = default;
 

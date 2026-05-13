@@ -296,7 +296,7 @@ bool BisGearAction::RunAutogearFallback()
 
 bool BisGearAction::Execute(Event /*event*/)
 {
-    if (!sPlayerbotAIConfig.bisCommand)
+    if (!sPlayerbotAIConfig.autoGearBisCommand)
     {
         botAI->TellError("bis command is not allowed, please check the configuration.");
         return false;
@@ -328,50 +328,82 @@ bool BisGearAction::Execute(Event /*event*/)
 
     // Druid Bear (Feral Tank) shares tab 1 with Cat. Use sentinel tab 10 when tank strategy active.
     constexpr uint8 BIS_TAB_DRUID_BEAR = 10;
+    constexpr uint16 BIS_ILVL_FALLBACK_WINDOW = 20;
+    uint16 resolvedIlvl = 0;
     std::map<uint8, uint32> bisMap;
     if (cls == CLASS_DRUID && tab == DRUID_TAB_FERAL && PlayerbotAI::IsTank(bot))
-        bisMap = sBisListMgr->GetBisFor(ilvl, cls, BIS_TAB_DRUID_BEAR, faction);
+        bisMap = sBisListMgr->GetBisForNearest(ilvl, BIS_ILVL_FALLBACK_WINDOW, cls, BIS_TAB_DRUID_BEAR, faction,
+                                               &resolvedIlvl);
     if (bisMap.empty())
-        bisMap = sBisListMgr->GetBisFor(ilvl, cls, tab, faction);
+        bisMap = sBisListMgr->GetBisForNearest(ilvl, BIS_ILVL_FALLBACK_WINDOW, cls, tab, faction, &resolvedIlvl);
 
-    // No rows for this ilvl/class/spec -> autogear fallback.
+    // No rows within fallback window -> full autogear fallback.
     if (bisMap.empty())
         return RunAutogearFallback();
 
+    if (resolvedIlvl != ilvl)
+        botAI->TellMaster("No BiS at ilvl " + std::to_string(ilvl) + ", using closest match at ilvl " +
+                          std::to_string(resolvedIlvl));
+
     botAI->TellMaster("Applying BiS gear");
 
-    // ICC-only: grant Ashen Verdict Exalted so Ashen Band rings can equip.
-    if (ilvl == 290)
-    {
-        if (FactionEntry const* fac = sFactionStore.LookupEntry(1156))
-        {
-            int32 exaltedRep = ReputationMgr::ReputationRankToStanding(
-                static_cast<ReputationRank>(REP_EXALTED - 1)) + 1;
-            if (bot->GetReputationMgr().GetReputation(fac) < exaltedRep)
-                bot->GetReputationMgr().SetReputation(fac, exaltedRep);
-        }
-    }
-
+    // 1. Wipe everything currently equipped so autogear starts from a clean slate.
+    //    Old items linger in inventory otherwise and autogear leaves slots empty on bag conflicts.
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
     {
         if (slot == EQUIPMENT_SLOT_TABARD || slot == EQUIPMENT_SLOT_BODY)
             continue;
-
         if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
             bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
     }
 
+    // 2. Run full autogear on the empty bot so every slot gets a best-available pick.
+    //    Uncovered slots will keep the autogear pick; BiS overwrites the rest below.
+    if (sPlayerbotAIConfig.autoGearCommand)
+    {
+        uint32 fillGs = sPlayerbotAIConfig.autoGearScoreLimit == 0
+                            ? 0
+                            : PlayerbotFactory::CalcMixedGearScore(sPlayerbotAIConfig.autoGearScoreLimit,
+                                                                   sPlayerbotAIConfig.autoGearQualityLimit);
+        PlayerbotFactory fillFactory(bot, bot->GetLevel(), sPlayerbotAIConfig.autoGearQualityLimit, fillGs);
+        fillFactory.InitEquipment(false, sPlayerbotAIConfig.twoRoundsGearInit);
+    }
+
+    // 3. Apply BiS: only touch slots where the bot can actually equip the BiS item.
+    //    If item requires reputation, grant the required rank first. If CanUseItem still
+    //    fails (class/race/skill/level), keep autogear's pick for that slot.
     for (auto const& kv : bisMap)
     {
         ItemTemplate const* proto = sObjectMgr->GetItemTemplate(kv.second);
         if (!proto)
             continue;
+
+        // Grant required reputation rank if the item gates on it.
+        if (proto->RequiredReputationFaction && proto->RequiredReputationRank > 0)
+        {
+            if (FactionEntry const* fac = sFactionStore.LookupEntry(proto->RequiredReputationFaction))
+            {
+                ReputationRank requiredRank = static_cast<ReputationRank>(proto->RequiredReputationRank);
+                if (bot->GetReputationRank(proto->RequiredReputationFaction) < requiredRank)
+                {
+                    int32 standing = ReputationMgr::ReputationRankToStanding(
+                                         static_cast<ReputationRank>(requiredRank - 1)) + 1;
+                    bot->GetReputationMgr().SetReputation(fac, standing);
+                }
+            }
+        }
+
         if (bot->CanUseItem(proto) != EQUIP_ERR_OK)
         {
             LOG_INFO("playerbots", "bis: bot {} cannot use item {} ({})",
                      bot->GetName(), kv.second, proto->Name1);
             continue;
         }
+
+        uint8 slot = kv.first;
+        if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+
         bot->StoreNewItemInBestSlots(kv.second, 1);
     }
 

@@ -56,7 +56,7 @@ public:
 class BisGearAction : public Action
 {
 public:
-    BisGearAction(PlayerbotAI* botAI) : Action(botAI, "bis") {}
+    BisGearAction(PlayerbotAI* botAI) : Action(botAI, "autogear bis") {}
     bool Execute(Event event) override;
 
 private:

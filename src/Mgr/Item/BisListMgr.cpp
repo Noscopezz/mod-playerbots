@@ -15,10 +15,10 @@ void BisListMgr::LoadAll()
     _bis.clear();
 
     QueryResult result = PlayerbotsDatabase.Query(
-        "SELECT class, tab, slot, faction, auto_gear_score_limit, item_id FROM playerbots_bis");
+        "SELECT class, tab, slot, faction, auto_gear_score_limit, item_id FROM playerbots_bis_gear");
     if (!result)
     {
-        LOG_INFO("server.loading", "playerbots_bis table missing or empty");
+        LOG_INFO("server.loading", "playerbots_bis_gear table missing or empty");
         return;
     }
 
@@ -68,4 +68,25 @@ std::map<uint8, uint32> BisListMgr::GetBisFor(uint16 autoGearScoreLimit, uint8 c
     }
 
     return result;
+}
+
+std::map<uint8, uint32> BisListMgr::GetBisForNearest(uint16 requestedIlvl, uint16 maxDrop, uint8 cls, uint8 tab,
+                                                    uint8 faction, uint16* outResolved) const
+{
+    uint16 floor = requestedIlvl > maxDrop ? requestedIlvl - maxDrop : 1;
+    for (uint16 try_ilvl = requestedIlvl; try_ilvl >= floor; --try_ilvl)
+    {
+        auto result = GetBisFor(try_ilvl, cls, tab, faction);
+        if (!result.empty())
+        {
+            if (outResolved)
+                *outResolved = try_ilvl;
+            return result;
+        }
+        if (try_ilvl == 0)
+            break;
+    }
+    if (outResolved)
+        *outResolved = 0;
+    return {};
 }
