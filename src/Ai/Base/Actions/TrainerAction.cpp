@@ -404,6 +404,29 @@ bool BisGearAction::Execute(Event event)
             bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
     }
 
+    // Wipe equippable items from bags too. Autogear can shove old equipped items into bags
+    // (HandleAutoStoreBagItemOpcode), and a unique-equipped duplicate stuck in a bag blocks
+    // CanEquipNewItem on subsequent BiS runs. Spare consumables/reagents.
+    auto destroyIfEquippable = [&](uint8 bag, uint8 slot)
+    {
+        Item* item = bot->GetItemByPos(bag, slot);
+        if (!item)
+            return;
+        ItemTemplate const* tmpl = item->GetTemplate();
+        if (!tmpl)
+            return;
+        if (tmpl->Class == ITEM_CLASS_WEAPON || tmpl->Class == ITEM_CLASS_ARMOR)
+            bot->DestroyItem(bag, slot, true);
+    };
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        destroyIfEquippable(INVENTORY_SLOT_BAG_0, slot);
+    for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+    {
+        if (Bag* container = bot->GetBagByPos(bag))
+            for (uint32 slot = 0; slot < container->GetBagSize(); ++slot)
+                destroyIfEquippable(bag, slot);
+    }
+
     // 2. Run full autogear on the empty bot so every slot gets a best-available pick.
     //    Uncovered slots will keep the autogear pick; BiS overwrites the rest below.
     if (sPlayerbotAIConfig.autoGearCommand)
@@ -413,6 +436,19 @@ bool BisGearAction::Execute(Event event)
                             : PlayerbotFactory::CalcMixedGearScore(ilvl, sPlayerbotAIConfig.autoGearQualityLimit);
         PlayerbotFactory fillFactory(bot, bot->GetLevel(), sPlayerbotAIConfig.autoGearQualityLimit, fillGs);
         fillFactory.InitEquipment(false, sPlayerbotAIConfig.twoRoundsGearInit);
+    }
+
+    // 2b. Pre-destroy autogear picks that would conflict with any BiS item by entry.
+    //     Autogear may have placed the exact item BiS wants into trinket2/finger2 (or vice versa);
+    //     unique-equipped enforcement would then make BiS's equip silently drop one copy.
+    std::set<uint32> bisEntries;
+    for (auto const& kv : bisMap)
+        bisEntries.insert(kv.second);
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        if (Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            if (bisEntries.count(item->GetEntry()))
+                bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
     }
 
     // 3. Apply BiS: only touch slots where the bot can actually equip the BiS item.
