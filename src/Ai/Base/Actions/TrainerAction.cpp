@@ -440,17 +440,38 @@ bool BisGearAction::Execute(Event event)
         }
 
         if (bot->CanUseItem(proto) != EQUIP_ERR_OK)
-        {
-            LOG_INFO("playerbots", "bis: bot {} cannot use item {} ({})",
-                     bot->GetName(), kv.second, proto->Name1);
             continue;
-        }
 
         uint8 slot = kv.first;
         if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
             bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
 
-        bot->StoreNewItemInBestSlots(kv.second, 1);
+        uint16 dest = 0;
+        InventoryResult eqResult = bot->CanEquipNewItem(slot, dest, kv.second, false);
+
+        // Paired slots (finger 10<->11, trinket 12<->13): destroy paired slot and retry once
+        // when unique-equipped or autogear residue blocks the first attempt.
+        if (eqResult != EQUIP_ERR_OK)
+        {
+            uint8 pairedSlot = 0xFF;
+            if (slot == EQUIPMENT_SLOT_FINGER1)        pairedSlot = EQUIPMENT_SLOT_FINGER2;
+            else if (slot == EQUIPMENT_SLOT_FINGER2)   pairedSlot = EQUIPMENT_SLOT_FINGER1;
+            else if (slot == EQUIPMENT_SLOT_TRINKET1)  pairedSlot = EQUIPMENT_SLOT_TRINKET2;
+            else if (slot == EQUIPMENT_SLOT_TRINKET2)  pairedSlot = EQUIPMENT_SLOT_TRINKET1;
+
+            if (pairedSlot != 0xFF)
+            {
+                if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairedSlot))
+                    bot->DestroyItem(INVENTORY_SLOT_BAG_0, pairedSlot, true);
+                eqResult = bot->CanEquipNewItem(slot, dest, kv.second, false);
+            }
+        }
+
+        if (eqResult == EQUIP_ERR_OK)
+        {
+            bot->EquipNewItem(dest, kv.second, true);
+            bot->AutoUnequipOffhandIfNeed();
+        }
     }
 
     PlayerbotFactory factory(bot, bot->GetLevel(), ITEM_QUALITY_EPIC, 0);
