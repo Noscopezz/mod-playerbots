@@ -272,7 +272,7 @@ bool MaintenanceAction::Execute(Event /*event*/)
     return true;
 }
 
-bool BisGearAction::RunAutogearFallback()
+bool BisGearAction::RunAutogearFallback(uint16 effectiveIlvl)
 {
     if (!sPlayerbotAIConfig.autoGearCommand)
     {
@@ -281,12 +281,22 @@ bool BisGearAction::RunAutogearFallback()
     }
 
     botAI->TellMaster("No BiS for your tier/spec/level, check cfg, running autogear instead");
-    uint32 gs = sPlayerbotAIConfig.autoGearScoreLimit == 0
+
+    // Wipe all equipped slots so autogear gears from scratch at the requested ilvl
+    // (avoids old high-tier items surviving the incremental 1.2x threshold).
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        if (slot == EQUIPMENT_SLOT_TABARD || slot == EQUIPMENT_SLOT_BODY)
+            continue;
+        if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+    }
+
+    uint32 gs = effectiveIlvl == 0
                     ? 0
-                    : PlayerbotFactory::CalcMixedGearScore(sPlayerbotAIConfig.autoGearScoreLimit,
-                                                           sPlayerbotAIConfig.autoGearQualityLimit);
+                    : PlayerbotFactory::CalcMixedGearScore(effectiveIlvl, sPlayerbotAIConfig.autoGearQualityLimit);
     PlayerbotFactory factory(bot, bot->GetLevel(), sPlayerbotAIConfig.autoGearQualityLimit, gs);
-    factory.InitEquipment(true);
+    factory.InitEquipment(false, sPlayerbotAIConfig.twoRoundsGearInit);
     factory.InitAmmo();
     if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
         factory.ApplyEnchantAndGemsNew();
@@ -294,7 +304,7 @@ bool BisGearAction::RunAutogearFallback()
     return true;
 }
 
-bool BisGearAction::Execute(Event /*event*/)
+bool BisGearAction::Execute(Event event)
 {
     if (!sPlayerbotAIConfig.autoGearBisCommand)
     {
@@ -322,6 +332,39 @@ bool BisGearAction::Execute(Event /*event*/)
     }
 
     uint16 ilvl = static_cast<uint16>(sPlayerbotAIConfig.autoGearScoreLimit);
+
+    // Optional explicit ilvl override: `/p autogear bis 55`.
+    // Garbage or out-of-range args are hard-rejected: no autogear fallback, no gear change.
+    std::string const param = event.getParam();
+    if (!param.empty())
+    {
+        unsigned long parsed = 0;
+        size_t pos = 0;
+        bool valid = false;
+        try
+        {
+            parsed = std::stoul(param, &pos);
+            valid = (parsed > 0 && pos == param.size() && parsed <= 0xFFFFu);
+        }
+        catch (...)
+        {
+            valid = false;
+        }
+
+        if (!valid)
+        {
+            botAI->TellError("Invalid BiS ilvl argument '" + param + "'. Use a positive integer.");
+            return false;
+        }
+        if (parsed > static_cast<unsigned long>(sPlayerbotAIConfig.autoGearScoreLimit))
+        {
+            botAI->TellError("BiS ilvl " + std::to_string(parsed) +
+                             " exceeds AutoGearScoreLimit " +
+                             std::to_string(sPlayerbotAIConfig.autoGearScoreLimit) + ", refusing");
+            return false;
+        }
+        ilvl = static_cast<uint16>(parsed);
+    }
     uint8 cls = bot->getClass();
     uint8 tab = AiFactory::GetPlayerSpecTab(bot);
     uint8 faction = bot->GetTeamId() == TEAM_ALLIANCE ? 1 : 2;
@@ -337,9 +380,13 @@ bool BisGearAction::Execute(Event /*event*/)
     if (bisMap.empty())
         bisMap = sBisListMgr->GetBisForNearest(ilvl, BIS_ILVL_FALLBACK_WINDOW, cls, tab, faction, &resolvedIlvl);
 
-    // No rows within fallback window -> full autogear fallback.
+    // No rows within fallback window -> full autogear fallback at the effective ilvl.
     if (bisMap.empty())
-        return RunAutogearFallback();
+    {
+        botAI->TellMaster("No BiS at ilvl " + std::to_string(ilvl) + ", using Autogear " +
+                          std::to_string(ilvl) + " instead");
+        return RunAutogearFallback(ilvl);
+    }
 
     if (resolvedIlvl != ilvl)
         botAI->TellMaster("No BiS at ilvl " + std::to_string(ilvl) + ", using closest match at ilvl " +
@@ -361,10 +408,9 @@ bool BisGearAction::Execute(Event /*event*/)
     //    Uncovered slots will keep the autogear pick; BiS overwrites the rest below.
     if (sPlayerbotAIConfig.autoGearCommand)
     {
-        uint32 fillGs = sPlayerbotAIConfig.autoGearScoreLimit == 0
+        uint32 fillGs = ilvl == 0
                             ? 0
-                            : PlayerbotFactory::CalcMixedGearScore(sPlayerbotAIConfig.autoGearScoreLimit,
-                                                                   sPlayerbotAIConfig.autoGearQualityLimit);
+                            : PlayerbotFactory::CalcMixedGearScore(ilvl, sPlayerbotAIConfig.autoGearQualityLimit);
         PlayerbotFactory fillFactory(bot, bot->GetLevel(), sPlayerbotAIConfig.autoGearQualityLimit, fillGs);
         fillFactory.InitEquipment(false, sPlayerbotAIConfig.twoRoundsGearInit);
     }

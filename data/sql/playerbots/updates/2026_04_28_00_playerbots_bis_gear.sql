@@ -2,7 +2,7 @@
 -- Lookup keys: (class, tab, slot, faction, auto_gear_score_limit).
 -- faction: 0=Both, 1=Alliance, 2=Horde. Faction-specific overrides Both.
 -- auto_gear_score_limit: matched exactly against AiPlayerbot.AutoGearScoreLimit.
--- phase: free-text label for human readability (e.g. 'Phase 5', 'Pre-Raid').
+-- phase: free-text label for readability (e.g. 'Phase 5', 'Pre-Raid').
 -- Slot uses AzerothCore EquipmentSlots enum:
 -- head=0, neck=1, shoulders=2, chest=4, waist=5, legs=6, feet=7, wrists=8, hands=9,
 -- finger1=10, finger2=11, trinket1=12, trinket2=13, back=14, mainhand=15, offhand=16, ranged=17.

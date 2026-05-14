@@ -60,7 +60,7 @@ public:
     bool Execute(Event event) override;
 
 private:
-    bool RunAutogearFallback();
+    bool RunAutogearFallback(uint16 effectiveIlvl);
 };
 
 #endif
