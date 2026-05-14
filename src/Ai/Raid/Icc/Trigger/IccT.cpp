@@ -1227,6 +1227,7 @@ bool IccSindragosaMainTankMysticBuffetTrigger::IsActive()
     return true;
 }
 
+// TODO never triggers since mystic buffet is bypassed in action 
 bool IccSindragosaTankSwapPositionTrigger::IsActive()
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "sindragosa");

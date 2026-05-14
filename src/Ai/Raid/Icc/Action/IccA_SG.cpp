@@ -449,6 +449,7 @@ bool IccSindragosaFrostBeaconAction::TryDropTombFlares(Unit const* boss)
     return false;
 }
 
+// Todo not really used since tigger is bypassed
 bool IccSindragosaTankSwapPositionAction::Execute(Event /*event*/)
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "sindragosa");
