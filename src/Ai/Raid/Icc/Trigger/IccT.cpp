@@ -182,26 +182,6 @@ bool IccFestergutGroupPositionTrigger::IsActive()
     return true;
 }
 
-bool IccFestergutMainTankGastricBloatTrigger::IsActive()
-{
-    Unit* boss = AI_VALUE2(Unit*, "find target", "festergut");
-    if (!boss)
-        return false;
-
-    if (!botAI->IsAssistTankOfIndex(bot, 0))
-        return false;
-
-    Unit* mt = AI_VALUE(Unit*, "main tank");
-    if (!mt)
-        return false;
-
-    Aura* aura = botAI->GetAura("Gastric Bloat", mt, false, true);
-    if (!aura || aura->GetStackAmount() < 6)
-        return false;
-
-    return true;
-}
-
 bool IccFestergutSporeTrigger::IsActive()
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "festergut");
