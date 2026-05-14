@@ -782,7 +782,7 @@ class IccSindragosaTankSwapPositionAction : public AttackAction
 {
     public:
         IccSindragosaTankSwapPositionAction(PlayerbotAI* botAI)
-            : AttackAction(botAI, "sindragosa tank swap position") {}
+            : AttackAction(botAI, "icc sindragosa tank swap position") {}
         bool Execute(Event event) override;
 };
 
