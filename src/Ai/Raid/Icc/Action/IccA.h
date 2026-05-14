@@ -544,7 +544,7 @@ class IccBqlGroupPositionAction : public AttackAction
 {
 public:
     IccBqlGroupPositionAction(PlayerbotAI* botAI)
-        : AttackAction(botAI, "icc group tank position") {}
+        : AttackAction(botAI, "icc bql group position") {}
     bool Execute(Event event) override;
 
     bool HandleTankPosition(Unit* boss, Aura* frenzyAura, Aura* shadowAura);
