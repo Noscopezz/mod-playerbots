@@ -38,7 +38,7 @@ INSERT INTO `ai_playerbot_texts`
      `text_loc1`, `text_loc2`, `text_loc3`, `text_loc4`,
      `text_loc5`, `text_loc6`, `text_loc7`, `text_loc8`)
 VALUES
-    (1759, 'bis_autogear_unavailable_error',
+    (1767, 'bis_autogear_unavailable_error',
      'autogear command is not allowed, please check the configuration.', 0, 0,
      '자동 장비 명령이 허용되지 않습니다. 설정을 확인하세요.',
      'La commande autogear n''est pas autorisée, veuillez vérifier la configuration.',
@@ -49,7 +49,7 @@ VALUES
      'El comando autogear no está permitido, por favor revisa la configuración.',
      'Команда autogear не разрешена, проверьте конфигурацию.'),
 
-    (1760, 'bis_no_rows_fallback',
+    (1768, 'bis_no_rows_fallback',
      'No BiS for your tier/spec/level, check cfg, running autogear instead', 0, 0,
      '해당 등급/전문화/레벨에 BiS 목록이 없습니다. 설정을 확인하세요. 대신 자동 장비를 실행합니다.',
      'Pas de BiS pour votre tier/spé/niveau, vérifiez la config, exécution d''autogear à la place.',
@@ -60,7 +60,7 @@ VALUES
      'No hay BiS para tu tier/spec/nivel, revisa la configuración, ejecutando autogear en su lugar.',
      'Нет BiS для вашего тира/спека/уровня, проверьте конфиг, запускаю autogear.'),
 
-    (1761, 'bis_command_unavailable_error',
+    (1769, 'bis_command_unavailable_error',
      'bis command is not allowed, please check the configuration.', 0, 0,
      'bis 명령이 허용되지 않습니다. 설정을 확인하세요.',
      'La commande bis n''est pas autorisée, veuillez vérifier la configuration.',
@@ -71,7 +71,7 @@ VALUES
      'El comando bis no está permitido, por favor revisa la configuración.',
      'Команда bis не разрешена, проверьте конфигурацию.'),
 
-    (1762, 'bis_altbot_refused_error',
+    (1770, 'bis_altbot_refused_error',
      'You cannot use bis on alt bots.', 0, 0,
      '부캐 봇에는 bis를 사용할 수 없습니다.',
      'Vous ne pouvez pas utiliser bis sur des bots alternatifs.',
@@ -82,7 +82,7 @@ VALUES
      'No puedes usar bis en bots alternativos.',
      'Вы не можете использовать bis на дополнительных ботах.'),
 
-    (1763, 'bis_quality_floor_error',
+    (1771, 'bis_quality_floor_error',
      'AutoGearQualityLimit must be 4 for BiS.', 0, 0,
      'BiS를 사용하려면 AutoGearQualityLimit이 4여야 합니다.',
      'AutoGearQualityLimit doit être à 4 pour utiliser BiS.',
@@ -93,7 +93,7 @@ VALUES
      'AutoGearQualityLimit debe ser 4 para BiS.',
      'AutoGearQualityLimit должен быть 4 для BiS.'),
 
-    (1764, 'bis_pvp_refused_error',
+    (1772, 'bis_pvp_refused_error',
      'bis is PvE only, bot is configured as PvP.', 0, 0,
      'bis는 PvE 전용이며, 이 봇은 PvP로 설정되어 있습니다.',
      'bis est uniquement pour le JcE, ce bot est configuré en JcJ.',
@@ -104,7 +104,7 @@ VALUES
      'bis es solo para PvE, el bot está configurado como PvP.',
      'bis только для PvE, бот настроен на PvP.'),
 
-    (1765, 'bis_invalid_arg_error',
+    (1773, 'bis_invalid_arg_error',
      'Invalid BiS ilvl argument ''%param''. Use a positive integer.', 0, 0,
      '잘못된 BiS 아이템 레벨 인수 ''%param''. 양의 정수를 사용하세요.',
      'Argument iLvl BiS invalide ''%param''. Utilisez un entier positif.',
@@ -115,7 +115,7 @@ VALUES
      'Argumento iLvl BiS inválido ''%param''. Usa un entero positivo.',
      'Неверный аргумент iLvl BiS ''%param''. Используйте положительное целое число.'),
 
-    (1766, 'bis_arg_above_limit_error',
+    (1774, 'bis_arg_above_limit_error',
      'BiS ilvl %requested exceeds AutoGearScoreLimit %limit, refusing', 0, 0,
      'BiS 아이템 레벨 %requested이(가) AutoGearScoreLimit %limit을(를) 초과합니다. 거부합니다.',
      'iLvl BiS %requested dépasse AutoGearScoreLimit %limit, refusé.',
@@ -126,7 +126,7 @@ VALUES
      'iLvl BiS %requested supera AutoGearScoreLimit %limit, rechazado.',
      'BiS iLvl %requested превышает AutoGearScoreLimit %limit, отказано.'),
 
-    (1767, 'bis_no_rows_autogear_msg',
+    (1775, 'bis_no_rows_autogear_msg',
      'No BiS at ilvl %ilvl, using Autogear %ilvl instead', 0, 0,
      '아이템 레벨 %ilvl의 BiS가 없어 대신 Autogear %ilvl을(를) 사용합니다.',
      'Pas de BiS à l''iLvl %ilvl, utilisation d''Autogear %ilvl à la place.',
@@ -137,7 +137,7 @@ VALUES
      'No hay BiS en iLvl %ilvl, usando Autogear %ilvl en su lugar.',
      'Нет BiS на iLvl %ilvl, использую Autogear %ilvl.'),
 
-    (1768, 'bis_closest_match_msg',
+    (1776, 'bis_closest_match_msg',
      'No BiS at ilvl %requested, using closest match at ilvl %resolved', 0, 0,
      '아이템 레벨 %requested의 BiS가 없어 가장 가까운 아이템 레벨 %resolved을(를) 사용합니다.',
      'Pas de BiS à l''iLvl %requested, utilisation de la correspondance la plus proche à l''iLvl %resolved.',
@@ -148,7 +148,7 @@ VALUES
      'No hay BiS en iLvl %requested, usando coincidencia más cercana en iLvl %resolved.',
      'Нет BiS на iLvl %requested, использую ближайшее совпадение на iLvl %resolved.'),
 
-    (1769, 'bis_applying_msg', 'Applying BiS gear', 0, 0,
+    (1777, 'bis_applying_msg', 'Applying BiS gear', 0, 0,
      'BiS 장비를 적용합니다.',
      'Application de l''équipement BiS.',
      'Wende BiS-Ausrüstung an.',
@@ -158,7 +158,7 @@ VALUES
      'Aplicando equipo BiS.',
      'Применяю BiS-снаряжение.'),
 
-    (1770, 'bis_applied_msg', 'BiS applied', 0, 0,
+    (1778, 'bis_applied_msg', 'BiS applied', 0, 0,
      'BiS 장비가 적용되었습니다.',
      'Équipement BiS appliqué.',
      'BiS-Ausrüstung angewendet.',
