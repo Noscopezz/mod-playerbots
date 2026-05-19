@@ -10,13 +10,72 @@
 #include "Vehicle.h"
 
 // Lord Marrowgar
+
+// Group iteration filter for same-instance, alive, in-world members.
+static bool IsValidLmMember(Player* member, Player* bot)
+{
+    if (!member || !member->IsInWorld() || !member->IsAlive())
+        return false;
+    if (member->GetMapId() != bot->GetMapId())
+        return false;
+    if (member->GetInstanceId() != bot->GetInstanceId())
+        return false;
+    if (member->HasAura(SPELL_LM_IMPALED))
+        return false;
+    return true;
+}
+
+// Lowest-GUID ranged bot in same instance, hunter-priority.
+static Player* PickBoneStormRangedTarget(Player* bot, PlayerbotAI* botAI)
+{
+    Group* group = bot->GetGroup();
+    if (!group)
+        return nullptr;
+
+    std::vector<Player*> ranged;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!IsValidLmMember(member, bot))
+            continue;
+        if (botAI->IsTank(member))
+            continue;
+        if (!botAI->IsRanged(member))
+            continue;
+
+        ranged.push_back(member);
+    }
+
+    if (ranged.empty())
+        return nullptr;
+
+    std::sort(ranged.begin(), ranged.end(),
+              [](Player const* a, Player const* b) { return a->GetGUID() < b->GetGUID(); });
+
+    for (Player* p : ranged)
+        if (p->getClass() == CLASS_HUNTER)
+            return p;
+
+    return ranged.front();
+}
+
+// True if any coldflame line sits within 10f of the anchor position.
+// Used to widen the tank's "stay-put" tolerance so AvoidAoe can move them
+// off the line without IccLmTankPositionAction dragging them back.
+static bool ColdflameNearAnchor(Player* bot, Position const& anchor, float leash)
+{
+    std::list<Creature*> coldflames;
+    bot->GetCreatureListWithEntryInGrid(coldflames, NPC_COLDFLAME, 200.0f);
+    for (Creature* c : coldflames)
+        if (c->GetExactDist2d(anchor.GetPositionX(), anchor.GetPositionY()) < leash)
+            return true;
+    return false;
+}
+
 bool IccLmTankPositionAction::Execute(Event /*event*/)
 {
     Unit* boss = AI_VALUE2(Unit*, "find target", "lord marrowgar");
     if (!boss)
-        return false;
-
-    if (!botAI->IsTank(bot))
         return false;
 
     bool const isBossInBoneStorm = botAI->GetAura("Bone Storm", boss) != nullptr;
@@ -24,21 +83,100 @@ bool IccLmTankPositionAction::Execute(Event /*event*/)
 
     if (isBossInBoneStorm)
     {
+        Player* const rangedTarget = PickBoneStormRangedTarget(bot, botAI);
+        if (rangedTarget == bot)
+        {
+            float const anchorDist = bot->GetExactDist2d(ICC_LM_BONE_STORM_AT_POSITION.GetPositionX(),
+                                                         ICC_LM_BONE_STORM_AT_POSITION.GetPositionY());
+
+            float const bossDist = bot->GetExactDist2d(boss);
+            float const proximityTrigger = 20.0f;
+            float const leash = 10.0f;
+
+            // Boss too close or standing in coldflame: reposition within leash from anchor
+            bool const bossNear = bossDist < proximityTrigger;
+            bool const inColdflame = [&]()
+            {
+                std::list<Creature*> coldflames;
+                bot->GetCreatureListWithEntryInGrid(coldflames, NPC_COLDFLAME, 4.0f);
+                return !coldflames.empty();
+            }();
+
+            if (bossNear || inColdflame)
+            {
+                // Try eight candidate offsets from the anchor at the leash radius;
+                // pick first one that is far from boss and clear of coldflames.
+                float bestX = bot->GetPositionX();
+                float bestY = bot->GetPositionY();
+                float bestScore = -1.0f;
+                bool found = false;
+
+                for (int i = 0; i < 8; ++i)
+                {
+                    float const angle = (float)i * (float)M_PI / 4.0f;
+                    float const cx = ICC_LM_BONE_STORM_AT_POSITION.GetPositionX() + std::cos(angle) * leash;
+                    float const cy = ICC_LM_BONE_STORM_AT_POSITION.GetPositionY() + std::sin(angle) * leash;
+
+                    float const dx = cx - boss->GetPositionX();
+                    float const dy = cy - boss->GetPositionY();
+                    float const distToBoss = std::sqrt(dx * dx + dy * dy);
+
+                    std::list<Creature*> coldflames;
+                    bot->GetCreatureListWithEntryInGrid(coldflames, NPC_COLDFLAME, 200.0f);
+                    bool hitColdflame = false;
+                    for (Creature* c : coldflames)
+                    {
+                        if (c->GetExactDist2d(cx, cy) < 4.0f)
+                        {
+                            hitColdflame = true;
+                            break;
+                        }
+                    }
+                    if (hitColdflame)
+                        continue;
+
+                    if (distToBoss > bestScore)
+                    {
+                        bestScore = distToBoss;
+                        bestX = cx;
+                        bestY = cy;
+                        found = true;
+                    }
+                }
+
+                if (found)
+                    return MoveTo(bot->GetMapId(), bestX, bestY, ICC_LM_BONE_STORM_AT_POSITION.GetPositionZ(), false,
+                                  false, false, false, MovementPriority::MOVEMENT_COMBAT);
+            }
+
+            if (anchorDist > maxDistanceThreshold)
+                return MoveTo(bot->GetMapId(), ICC_LM_BONE_STORM_AT_POSITION.GetPositionX(),
+                              ICC_LM_BONE_STORM_AT_POSITION.GetPositionY(),
+                              ICC_LM_BONE_STORM_AT_POSITION.GetPositionZ(), false, false, false, false,
+                              MovementPriority::MOVEMENT_COMBAT);
+            return true;
+        }
+
+        float const tankLeash =
+            ColdflameNearAnchor(bot, ICC_LM_TANK_POSITION, 10.0f) ? 10.0f : maxDistanceThreshold;
+
         if (botAI->IsMainTank(bot))
         {
             float const distance =
                 bot->GetExactDist2d(ICC_LM_TANK_POSITION.GetPositionX(), ICC_LM_TANK_POSITION.GetPositionY());
-            if (distance > maxDistanceThreshold)
+            if (distance > tankLeash)
                 return MoveTowardPosition(ICC_LM_TANK_POSITION, maxDistanceThreshold);
             return false;
         }
 
         if (botAI->IsAssistTank(bot))
         {
-            float const distance = bot->GetExactDist2d(ICC_LM_BONE_STORM_AT_POSITION.GetPositionX(),
-                                                       ICC_LM_BONE_STORM_AT_POSITION.GetPositionY());
-            if (distance > maxDistanceThreshold)
-                return MoveTowardPosition(ICC_LM_BONE_STORM_AT_POSITION, maxDistanceThreshold);
+            float const distance =
+                bot->GetExactDist2d(ICC_LM_TANK_POSITION.GetPositionX(), ICC_LM_TANK_POSITION.GetPositionY());
+            if (distance > tankLeash)
+                return MoveTo(bot->GetMapId(), ICC_LM_TANK_POSITION.GetPositionX(),
+                              ICC_LM_TANK_POSITION.GetPositionY(), ICC_LM_TANK_POSITION.GetPositionZ(), false, false,
+                              false, false, MovementPriority::MOVEMENT_COMBAT);
             return false;
         }
 
@@ -51,12 +189,15 @@ bool IccLmTankPositionAction::Execute(Event /*event*/)
         return false;
     }
 
+    float const tankLeash =
+        ColdflameNearAnchor(bot, ICC_LM_TANK_POSITION, 10.0f) ? 10.0f : maxDistanceThreshold;
+
     if (botAI->HasAggro(boss) && botAI->IsMainTank(bot) && boss->GetVictim() == bot)
     {
         float const distance =
             bot->GetExactDist2d(ICC_LM_TANK_POSITION.GetPositionX(), ICC_LM_TANK_POSITION.GetPositionY());
 
-        if (distance > maxDistanceThreshold)
+        if (distance > tankLeash)
             return MoveTowardPosition(ICC_LM_TANK_POSITION, maxDistanceThreshold);
     }
 
@@ -65,8 +206,10 @@ bool IccLmTankPositionAction::Execute(Event /*event*/)
         float const distance =
             bot->GetExactDist2d(ICC_LM_TANK_POSITION.GetPositionX(), ICC_LM_TANK_POSITION.GetPositionY());
 
-        if (distance > maxDistanceThreshold)
-            return MoveTowardPosition(ICC_LM_TANK_POSITION, maxDistanceThreshold);
+        if (distance > tankLeash)
+            return MoveTo(bot->GetMapId(), ICC_LM_TANK_POSITION.GetPositionX(), ICC_LM_TANK_POSITION.GetPositionY(),
+                          ICC_LM_TANK_POSITION.GetPositionZ(), false, false, false, false,
+                          MovementPriority::MOVEMENT_COMBAT);
 
         if (distance < maxDistanceThreshold)
         {
