@@ -25,12 +25,14 @@ static bool IsValidLmMember(Player* member, Player* bot)
     return true;
 }
 
-// Lowest-GUID ranged bot in same instance, hunter-priority.
-static Player* PickBoneStormRangedTarget(Player* bot, PlayerbotAI* botAI)
+// Up to two lowest-GUID ranged bots in same instance, hunter-priority.
+static std::vector<Player*> PickBoneStormRangedTargets(Player* bot, PlayerbotAI* botAI)
 {
+    std::vector<Player*> result;
+
     Group* group = bot->GetGroup();
     if (!group)
-        return nullptr;
+        return result;
 
     std::vector<Player*> ranged;
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
@@ -47,16 +49,30 @@ static Player* PickBoneStormRangedTarget(Player* bot, PlayerbotAI* botAI)
     }
 
     if (ranged.empty())
-        return nullptr;
+        return result;
 
     std::sort(ranged.begin(), ranged.end(),
               [](Player const* a, Player const* b) { return a->GetGUID() < b->GetGUID(); });
 
     for (Player* p : ranged)
-        if (p->getClass() == CLASS_HUNTER)
-            return p;
+    {
+        if (p->getClass() != CLASS_HUNTER)
+            continue;
+        result.push_back(p);
+        if (result.size() == 2)
+            return result;
+    }
 
-    return ranged.front();
+    for (Player* p : ranged)
+    {
+        if (p->getClass() == CLASS_HUNTER)
+            continue;
+        result.push_back(p);
+        if (result.size() == 2)
+            return result;
+    }
+
+    return result;
 }
 
 // True if any coldflame line sits within 10f of the anchor position.
@@ -83,8 +99,8 @@ bool IccLmTankPositionAction::Execute(Event /*event*/)
 
     if (isBossInBoneStorm)
     {
-        Player* const rangedTarget = PickBoneStormRangedTarget(bot, botAI);
-        if (rangedTarget == bot)
+        std::vector<Player*> const rangedTargets = PickBoneStormRangedTargets(bot, botAI);
+        if (std::find(rangedTargets.begin(), rangedTargets.end(), bot) != rangedTargets.end())
         {
             float const anchorDist = bot->GetExactDist2d(ICC_LM_BONE_STORM_AT_POSITION.GetPositionX(),
                                                          ICC_LM_BONE_STORM_AT_POSITION.GetPositionY());
