@@ -1,4 +1,4 @@
-#include "IccM.h"
+#include "ICCMultipliers.h"
 
 #include "ChooseTargetActions.h"
 #include "DKActions.h"
@@ -12,15 +12,15 @@
 #include "MovementActions.h"
 #include "PaladinActions.h"
 #include "PriestActions.h"
-#include "IccA.h"
+#include "ICCActions.h"
 #include "ReachTargetActions.h"
 #include "RogueActions.h"
 #include "ShamanActions.h"
 #include "UseMeetingStoneAction.h"
 #include "WarriorActions.h"
 #include "PlayerbotAI.h"
-#include "IccT.h"
-#include "../Util/IccScripts.h"
+#include "ICCTriggers.h"
+#include "ICCScripts.h"
 
 // LK global variables
 namespace

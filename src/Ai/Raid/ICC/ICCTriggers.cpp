@@ -1,5 +1,5 @@
-#include "IccT.h"
-#include "IccA.h"
+#include "ICCTriggers.h"
+#include "ICCActions.h"
 #include "NearestNpcsValue.h"
 #include "PlayerbotAIConfig.h"
 #include "ObjectAccessor.h"
@@ -8,7 +8,7 @@
 #include "Trigger.h"
 #include "GridNotifiers.h"
 #include "Vehicle.h"
-#include "../Util/IccScripts.h"
+#include "ICCScripts.h"
 
 //Lord Marrogwar
 bool IccLmTrigger::IsActive()

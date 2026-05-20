@@ -2,8 +2,8 @@
 #include "GenericSpellActions.h"
 #include "Multiplier.h"
 #include "Playerbots.h"
-#include "IccA.h"
-#include "IccT.h"
+#include "ICCActions.h"
+#include "ICCTriggers.h"
 
 bool IccDogsTankPositionAction::Execute(Event /*event*/)
 {

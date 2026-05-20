@@ -2,7 +2,7 @@
 #define _PLAYERBOT_ICCTRIGGERCONTEXT_H
 
 #include "NamedObjectContext.h"
-#include "IccT.h"
+#include "ICCTriggers.h"
 
 class RaidIccTriggerContext : public NamedObjectContext<Trigger>
 {

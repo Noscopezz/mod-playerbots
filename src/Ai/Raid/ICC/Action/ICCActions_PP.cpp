@@ -4,9 +4,9 @@
 #include "NearestNpcsValue.h"
 #include "ObjectAccessor.h"
 #include "Playerbots.h"
-#include "IccA.h"
-#include "IccT.h"
-#include "../Util/IccScripts.h"
+#include "ICCActions.h"
+#include "ICCTriggers.h"
+#include "ICCScripts.h"
 #include "RtiValue.h"
 #include "Vehicle.h"
 #include <fstream>

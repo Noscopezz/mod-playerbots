@@ -1,4 +1,4 @@
-#include "IccA.h"
+#include "ICCActions.h"
 #include "NearestNpcsValue.h"
 #include "ObjectAccessor.h"
 #include "Playerbots.h"
@@ -6,7 +6,7 @@
 #include "RtiValue.h"
 #include "GenericSpellActions.h"
 #include "GenericActions.h"
-#include "IccT.h"
+#include "ICCTriggers.h"
 #include "Multiplier.h"
 
 bool IccValkyreSpearAction::Execute(Event /*event*/)

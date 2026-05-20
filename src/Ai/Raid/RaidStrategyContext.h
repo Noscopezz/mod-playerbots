@@ -19,7 +19,7 @@
 #include "RaidVoAStrategy.h"
 #include "RaidUlduarStrategy.h"
 #include "RaidOnyxiaStrategy.h"
-#include "IccS.h"
+#include "ICCStrategy.h"
 
 class RaidStrategyContext : public NamedObjectContext<Strategy>
 {
