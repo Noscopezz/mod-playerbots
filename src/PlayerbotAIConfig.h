@@ -402,6 +402,7 @@ public:
     int reviveBotWhenSummoned;
     bool botRepairWhenSummon;
     bool autoInitOnly;
+    bool resetInstanceIdForAltBots;
     float autoInitEquipLevelLimitRatio;
     int32 maxAddedBots;
     int32 addClassCommand;
