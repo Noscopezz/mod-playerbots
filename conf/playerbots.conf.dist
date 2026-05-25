@@ -188,6 +188,11 @@ AiPlayerbot.SelfBotLevel = 1
 # Default: 0 (non-GM player can use any intialization commands)
 AiPlayerbot.AutoInitOnly = 0
 
+# Minimum seconds between init=... commands on the same bot.
+# Prevents server lag from repeated bot re-initialization.
+# Default: 30 (set to 0 to disable)
+AiPlayerbot.AutoInitCooldown = 30
+
 # The upper limit ratio of bot equipment level for init=auto
 # Default: 1.0 (same with the player)
 AiPlayerbot.AutoInitEquipLevelLimitRatio = 1.0

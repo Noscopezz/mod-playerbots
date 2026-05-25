@@ -58,13 +58,35 @@ public:
 
     bool IsLocked() const { return !active; }
 
+    static uint32 SecondsUntilReady(ObjectGuid guid)
+    {
+        uint32 cd = sPlayerbotAIConfig.autoInitCooldown;
+        if (cd == 0)
+            return 0;
+        auto it = lastInitTime.find(guid);
+        if (it == lastInitTime.end())
+            return 0;
+        time_t now = time(nullptr);
+        time_t ready = it->second + cd;
+        if (now >= ready)
+            return 0;
+        return static_cast<uint32>(ready - now);
+    }
+
+    static void StampInit(ObjectGuid guid)
+    {
+        lastInitTime[guid] = time(nullptr);
+    }
+
 private:
     ObjectGuid guid;
     bool active;
     static std::unordered_set<ObjectGuid> botsBeingInitialized;
+    static std::unordered_map<ObjectGuid, time_t> lastInitTime;
 };
 
 std::unordered_set<ObjectGuid> BotInitGuard::botsBeingInitialized;
+std::unordered_map<ObjectGuid, time_t> BotInitGuard::lastInitTime;
 std::unordered_map<ObjectGuid, uint32> PlayerbotHolder::botLoading;
 
 PlayerbotHolder::PlayerbotHolder() : PlayerbotAIBase(false) {}
@@ -765,35 +787,48 @@ std::string const PlayerbotHolder::ProcessBotCommand(std::string const cmd, Obje
                 return "Initialization already in progress, please wait.";
             }
 
+            if (cmd.starts_with("init="))
+            {
+                if (uint32 wait = BotInitGuard::SecondsUntilReady(bot->GetGUID()))
+                {
+                    return "Init cooldown, wait " + std::to_string(wait) + "s.";
+                }
+            }
+
             int gs;
             if (cmd == "init=white" || cmd == "init=common")
             {
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_NORMAL);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok";
             }
             else if (cmd == "init=green" || cmd == "init=uncommon")
             {
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_UNCOMMON);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok";
             }
             else if (cmd == "init=blue" || cmd == "init=rare")
             {
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_RARE);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok";
             }
             else if (cmd == "init=epic" || cmd == "init=purple")
             {
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_EPIC);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok";
             }
             else if (cmd == "init=legendary" || cmd == "init=yellow")
             {
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_LEGENDARY);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok";
             }
             else if (cmd == "init=auto")
@@ -805,6 +840,7 @@ std::string const PlayerbotHolder::ProcessBotCommand(std::string const cmd, Obje
                     mixedGearScore = 1;
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_LEGENDARY, mixedGearScore);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok, gear score limit: " + std::to_string(mixedGearScore / PlayerbotAI::GetItemScoreMultiplier(ItemQualities(ITEM_QUALITY_EPIC))) +
                        "(for epic)";
             }
@@ -812,6 +848,7 @@ std::string const PlayerbotHolder::ProcessBotCommand(std::string const cmd, Obje
             {
                 PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_LEGENDARY, gs);
                 factory.Randomize(false);
+                BotInitGuard::StampInit(bot->GetGUID());
                 return "ok, gear score limit: " + std::to_string(gs / PlayerbotAI::GetItemScoreMultiplier(ItemQualities(ITEM_QUALITY_EPIC))) + "(for epic)";
             }
         }
