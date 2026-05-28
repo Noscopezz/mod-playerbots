@@ -44,6 +44,15 @@ bool ResetAiAction::Execute(Event event)
             }
         }
     }
+    if (Player* master = botAI->GetMaster())
+    {
+        Group* botGroup = bot->GetGroup();
+        Group* masterGroup = master->GetGroup();
+        if (botGroup && (!masterGroup || masterGroup != botGroup))
+        {
+            botAI->SetMaster(nullptr);
+        }
+    }
     if (sRandomPlayerbotMgr.IsRandomBot(bot) && !bot->InBattleground())
     {
         if (Group* group = bot->GetGroup())
