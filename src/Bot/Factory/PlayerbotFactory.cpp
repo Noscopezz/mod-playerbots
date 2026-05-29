@@ -2314,7 +2314,12 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
         if (Item* equipped = bot->EquipNewItem(dest, bestItemForSlot, true))
         {
             if (bestRandomPropForSlot != 0)
+            {
+                uint8 equipSlot = equipped->GetSlot();
+                bot->_ApplyItemMods(equipped, equipSlot, false);
                 equipped->SetItemRandomProperties(bestRandomPropForSlot);
+                bot->_ApplyItemMods(equipped, equipSlot, true);
+            }
         }
         bot->AutoUnequipOffhandIfNeed();
         // if (newItem)
@@ -2403,7 +2408,12 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
             if (Item* equipped = bot->EquipNewItem(dest, bestItemForSlot, true))
             {
                 if (bestRandomPropForSlot != 0)
+                {
+                    uint8 equipSlot = equipped->GetSlot();
+                    bot->_ApplyItemMods(equipped, equipSlot, false);
                     equipped->SetItemRandomProperties(bestRandomPropForSlot);
+                    bot->_ApplyItemMods(equipped, equipSlot, true);
+                }
             }
             bot->AutoUnequipOffhandIfNeed();
         }

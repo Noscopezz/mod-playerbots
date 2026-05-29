@@ -211,6 +211,7 @@ int32 StatsWeightCalculator::PickBestRandomPropertyId(uint32 itemId)
     if (pool.empty())
         return 0;
 
+    Reset();
     GenerateWeights(player_);
 
     int32 bestId = 0;
