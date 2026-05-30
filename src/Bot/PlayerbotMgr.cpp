@@ -739,7 +739,7 @@ std::string const PlayerbotHolder::ProcessBotCommand(std::string const cmd, Obje
     if (!addClassBot)
     {
         if (!(cmd == "refresh=raid" && sPlayerbotAIConfig.resetInstanceIdForAltBots))
-            return "ERROR: You can not use this command on non-addclass bot.";
+            return "ERROR: You can only use this command on addclass bots.";
     }
 
     if (!admin)
