@@ -31,6 +31,11 @@ bool NoManaGemTrigger::IsActive()
     return true;
 }
 
+bool ArcaneIntellectOnPartyTrigger::IsActive()
+{
+    return BuffOnPartyTrigger::IsActive() && !botAI->HasAura("arcane brilliance", GetTarget());
+}
+
 bool ArcaneIntellectTrigger::IsActive()
 {
     return BuffTrigger::IsActive() && !botAI->HasAura("arcane brilliance", GetTarget());

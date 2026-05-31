@@ -13,6 +13,32 @@
 
 class PlayerbotAI;
 
+inline std::string const GetActualBlessingOfMight(Unit* target)
+{
+    switch (target->getClass())
+    {
+        case CLASS_MAGE:
+        case CLASS_PRIEST:
+        case CLASS_WARLOCK:
+            return "blessing of wisdom";
+    }
+
+    return "blessing of might";
+}
+
+inline std::string const GetActualBlessingOfWisdom(Unit* target)
+{
+    switch (target->getClass())
+    {
+        case CLASS_WARRIOR:
+        case CLASS_ROGUE:
+        case CLASS_DEATH_KNIGHT:
+            return "blessing of might";
+    }
+
+    return "blessing of wisdom";
+}
+
 BUFF_TRIGGER(HolyShieldTrigger, "holy shield");
 BUFF_TRIGGER(RighteousFuryTrigger, "righteous fury");
 
@@ -186,55 +212,42 @@ DEBUFF_TRIGGER(AvengerShieldTrigger, "avenger's shield");
 class BeaconOfLightOnMainTankTrigger : public BuffOnMainTankTrigger
 {
 public:
-    BeaconOfLightOnMainTankTrigger(PlayerbotAI* botAI)
-        : BuffOnMainTankTrigger(botAI, "beacon of light", true) {}
+    BeaconOfLightOnMainTankTrigger(PlayerbotAI* ai)
+        : BuffOnMainTankTrigger(ai, "beacon of light", true) {}
 };
 
 class SacredShieldOnMainTankTrigger : public BuffOnMainTankTrigger
 {
 public:
-    SacredShieldOnMainTankTrigger(PlayerbotAI* botAI)
-        : BuffOnMainTankTrigger(botAI, "sacred shield", false) {}
+    SacredShieldOnMainTankTrigger(PlayerbotAI* ai) : BuffOnMainTankTrigger(ai, "sacred shield", false) {}
 };
 
-class BlessingOfKingsOnPartyTrigger : public BlessingOnPartyTrigger
+class BlessingOfKingsOnPartyTrigger : public BuffOnPartyTrigger
 {
 public:
     BlessingOfKingsOnPartyTrigger(PlayerbotAI* botAI)
-        : BlessingOnPartyTrigger(botAI)
-    {
-        spell = "blessing of kings";
-    }
+        : BuffOnPartyTrigger(botAI, "blessing of kings", 2 * 2000) {}
 };
 
-class BlessingOfWisdomOnPartyTrigger : public BlessingOnPartyTrigger
+class BlessingOfWisdomOnPartyTrigger : public BuffOnPartyTrigger
 {
 public:
     BlessingOfWisdomOnPartyTrigger(PlayerbotAI* botAI)
-        : BlessingOnPartyTrigger(botAI)
-    {
-        spell = "blessing of might,blessing of wisdom";
-    }
+        : BuffOnPartyTrigger(botAI, "blessing of might,blessing of wisdom", 2 * 2000) {}
 };
 
-class BlessingOfMightOnPartyTrigger : public BlessingOnPartyTrigger
+class BlessingOfMightOnPartyTrigger : public BuffOnPartyTrigger
 {
 public:
     BlessingOfMightOnPartyTrigger(PlayerbotAI* botAI)
-        : BlessingOnPartyTrigger(botAI)
-    {
-        spell = "blessing of might,blessing of wisdom";
-    }
+        : BuffOnPartyTrigger(botAI, "blessing of might,blessing of wisdom", 2 * 2000) {}
 };
 
-class BlessingOfSanctuaryOnPartyTrigger : public BlessingOnPartyTrigger
+class BlessingOfSanctuaryOnPartyTrigger : public BuffOnPartyTrigger
 {
 public:
     BlessingOfSanctuaryOnPartyTrigger(PlayerbotAI* botAI)
-        : BlessingOnPartyTrigger(botAI)
-    {
-        spell = "blessing of sanctuary";
-    }
+        : BuffOnPartyTrigger(botAI, "blessing of sanctuary", 2 * 2000) {}
 };
 
 class HandOfFreedomOnPartyTrigger : public Trigger
@@ -251,15 +264,6 @@ class AvengingWrathTrigger : public BoostTrigger
 {
 public:
     AvengingWrathTrigger(PlayerbotAI* botAI) : BoostTrigger(botAI, "avenging wrath") {}
-};
-
-class GreaterBlessingNeededTrigger : public Trigger
-{
-public:
-    GreaterBlessingNeededTrigger(PlayerbotAI* botAI)
-        : Trigger(botAI, "greater blessing needed", 4) {}
-
-    bool IsActive() override;
 };
 
 #endif

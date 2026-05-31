@@ -552,8 +552,9 @@ void PlayerbotFactory::Prepare()
 void PlayerbotFactory::Randomize(bool incremental)
 {
     // if (sPlayerbotAIConfig.disableRandomLevels)
+    // {
     //     return;
-
+    // }
     LOG_DEBUG("playerbots", "{} randomizing {} (level {} class = {})...", (incremental ? "Incremental" : "Full"),
              bot->GetName().c_str(), level, bot->getClass());
     // LOG_DEBUG("playerbots", "Preparing to {} randomize...", (incremental ? "incremental" : "full"));
@@ -561,22 +562,16 @@ void PlayerbotFactory::Randomize(bool incremental)
     LOG_DEBUG("playerbots", "Resetting player...");
     PerfMonitorOperation* pmo = sPerfMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Reset");
 
-    if (!sPlayerbotAIConfig.equipAndSpecPersistence ||
-        level < sPlayerbotAIConfig.equipAndSpecPersistenceLevel)
-    {
+    if (!PlayerbotAIConfig::instance().equipmentPersistence || level < PlayerbotAIConfig::instance().equipmentPersistenceLevel)
         bot->resetTalents(true);
-    }
 
     if (!incremental)
     {
         ClearSkills();
         ClearSpells();
         ResetQuests();
-        if (!sPlayerbotAIConfig.equipAndSpecPersistence ||
-            level < sPlayerbotAIConfig.equipAndSpecPersistenceLevel)
-        {
+        if (!PlayerbotAIConfig::instance().equipmentPersistence || level < PlayerbotAIConfig::instance().equipmentPersistenceLevel)
             ClearAllItems();
-        }
     }
     ClearInventory();
     bot->RemoveAllSpellCooldown();
@@ -627,8 +622,8 @@ void PlayerbotFactory::Randomize(bool incremental)
 
     pmo = sPerfMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Talents");
     LOG_DEBUG("playerbots", "Initializing talents...");
-    if (!incremental || !sPlayerbotAIConfig.equipAndSpecPersistence ||
-        bot->GetLevel() < sPlayerbotAIConfig.equipAndSpecPersistenceLevel)
+    if (!incremental || !sPlayerbotAIConfig.equipmentPersistence ||
+        bot->GetLevel() < sPlayerbotAIConfig.equipmentPersistenceLevel)
     {
         uint32 specIndex = InitTalentsTree();
         sRandomPlayerbotMgr.SetValue(bot->GetGUID().GetCounter(), "specNo", specIndex + 1);
@@ -675,10 +670,11 @@ void PlayerbotFactory::Randomize(bool incremental)
 
     pmo = sPerfMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Equip");
     LOG_DEBUG("playerbots", "Initializing equipmemt...");
-    if (!incremental || !sPlayerbotAIConfig.equipAndSpecPersistence ||
-        bot->GetLevel() < sPlayerbotAIConfig.equipAndSpecPersistenceLevel)
+    if (!incremental || !sPlayerbotAIConfig.equipmentPersistence ||
+        bot->GetLevel() < sPlayerbotAIConfig.equipmentPersistenceLevel)
     {
-        InitEquipment(incremental, incremental ? false : sPlayerbotAIConfig.twoRoundsGearInit);
+        if (sPlayerbotAIConfig.incrementalGearInit || !incremental)
+            InitEquipment(incremental, incremental ? false : sPlayerbotAIConfig.twoRoundsGearInit);
     }
     // bot->SaveToDB(false, false);
     if (pmo)
@@ -815,8 +811,7 @@ void PlayerbotFactory::Randomize(bool incremental)
 void PlayerbotFactory::Refresh()
 {
     // Prepare();
-    // if (!sPlayerbotAIConfig.equipAndSpecPersistence ||
-    //     bot->GetLevel() < sPlayerbotAIConfig.equipAndSpecPersistenceLevel)
+    // if (!sPlayerbotAIConfig.equipmentPersistence || bot->GetLevel() < sPlayerbotAIConfig.equipmentPersistenceLevel)
     // {
     //     InitEquipment(true);
     // }
@@ -836,13 +831,14 @@ void PlayerbotFactory::Refresh()
     InitSpecialSpells();
     InitMounts();
     InitKeyring();
-    if (!sPlayerbotAIConfig.equipAndSpecPersistence ||
-        bot->GetLevel() < sPlayerbotAIConfig.equipAndSpecPersistenceLevel)
+    if (!sPlayerbotAIConfig.equipmentPersistence || bot->GetLevel() < sPlayerbotAIConfig.equipmentPersistenceLevel)
     {
         InitTalentsTree(true, true, true);
     }
     if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
+    {
         ApplyEnchantAndGemsNew();
+    }
     bot->DurabilityRepairAll(false, 1.0f, false);
     if (bot->isDead())
         bot->ResurrectPlayer(1.0f, false);
@@ -2041,6 +2037,9 @@ void Shuffle(std::vector<uint32>& items)
 
 void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
 {
+    if (incremental && !sPlayerbotAIConfig.incrementalGearInit)
+        return;
+
     if (level < 5)
     {
         // original items
@@ -2082,7 +2081,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
         return;
     }
 
-    std::unordered_map<uint8, std::vector<std::pair<uint32, int32>>> items;
+    std::unordered_map<uint8, std::vector<uint32>> items;
     // int tab = AiFactory::GetPlayerSpecTab(bot);
 
     uint32 blevel = bot->GetLevel();
@@ -2229,17 +2228,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
                         if (slot == EQUIPMENT_SLOT_OFFHAND && bot->getClass() == CLASS_ROGUE &&
                             proto->Class != ITEM_CLASS_WEAPON)
                             continue;
-
-                        int32 bestRandomProp = 0;
-                        if (proto->RandomProperty || proto->RandomSuffix)
-                            bestRandomProp = calculator.PickBestRandomPropertyId(itemId);
-                        items[slot].push_back({itemId, bestRandomProp});
+                        items[slot].push_back(itemId);
                     }
                 }
             }
         } while (items[slot].size() < 25 && desiredQuality-- > ITEM_QUALITY_POOR);
 
-        std::vector<std::pair<uint32, int32>>& ids = items[slot];
+        std::vector<uint32>& ids = items[slot];
         if (ids.empty())
         {
             continue;
@@ -2247,15 +2242,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
 
         float bestScoreForSlot = -1;
         uint32 bestItemForSlot = 0;
-        int32 bestRandomPropForSlot = 0;
         for (int index = 0; index < ids.size(); index++)
         {
-            uint32 newItemId = ids[index].first;
-            int32 newItemProp = ids[index].second;
+            uint32 newItemId = ids[index];
 
             ItemTemplate const* proto = sObjectMgr->GetItemTemplate(newItemId);
 
-            float cur_score = calculator.CalculateItem(newItemId, newItemProp, slot);
+            float cur_score = calculator.CalculateItem(newItemId, 0, slot);
 
             if (cur_score > 0.0f && proto && proto->Class == ITEM_CLASS_ARMOR && sPlayerbotAIConfig.preferClassArmorType)
             {
@@ -2274,7 +2267,6 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
                     continue;
                 bestScoreForSlot = cur_score;
                 bestItemForSlot = newItemId;
-                bestRandomPropForSlot = newItemProp;
             }
         }
 
@@ -2312,16 +2304,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
         if (oldItem)
             continue;
 
-        if (Item* equipped = bot->EquipNewItem(dest, bestItemForSlot, true))
-        {
-            if (bestRandomPropForSlot != 0)
-            {
-                uint8 equipSlot = equipped->GetSlot();
-                bot->_ApplyItemMods(equipped, equipSlot, false);
-                equipped->SetItemRandomProperties(bestRandomPropForSlot);
-                bot->_ApplyItemMods(equipped, equipSlot, true);
-            }
-        }
+        bot->EquipNewItem(dest, bestItemForSlot, true);
         bot->AutoUnequipOffhandIfNeed();
         // if (newItem)
         // {
@@ -2362,21 +2345,19 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
             if (Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
                 bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
 
-            std::vector<std::pair<uint32, int32>>& ids = items[slot];
+            std::vector<uint32>& ids = items[slot];
             if (ids.empty())
                 continue;
 
             float bestScoreForSlot = -1;
             uint32 bestItemForSlot = 0;
-            int32 bestRandomPropForSlot = 0;
             for (int index = 0; index < ids.size(); index++)
             {
-                uint32 newItemId = ids[index].first;
-                int32 newItemProp = ids[index].second;
+                uint32 newItemId = ids[index];
 
                 ItemTemplate const* proto = sObjectMgr->GetItemTemplate(newItemId);
 
-                float cur_score = calculator.CalculateItem(newItemId, newItemProp, slot);
+                float cur_score = calculator.CalculateItem(newItemId, 0, slot);
 
                 if (cur_score > 0.0f && proto && proto->Class == ITEM_CLASS_ARMOR && sPlayerbotAIConfig.preferClassArmorType)
                 {
@@ -2395,7 +2376,6 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
                         continue;
                     bestScoreForSlot = cur_score;
                     bestItemForSlot = newItemId;
-                    bestRandomPropForSlot = newItemProp;
                 }
             }
 
@@ -2406,16 +2386,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
             if (!CanEquipUnseenItem(slot, dest, bestItemForSlot))
                 continue;
 
-            if (Item* equipped = bot->EquipNewItem(dest, bestItemForSlot, true))
-            {
-                if (bestRandomPropForSlot != 0)
-                {
-                    uint8 equipSlot = equipped->GetSlot();
-                    bot->_ApplyItemMods(equipped, equipSlot, false);
-                    equipped->SetItemRandomProperties(bestRandomPropForSlot);
-                    bot->_ApplyItemMods(equipped, equipSlot, true);
-                }
-            }
+            bot->EquipNewItem(dest, bestItemForSlot, true);
             bot->AutoUnequipOffhandIfNeed();
         }
     }

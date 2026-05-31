@@ -242,7 +242,6 @@ public:
         }
 
         group->ChangeLeader(newLeader->GetGUID());
-        group->SendUpdate();
         LOG_DEBUG("playerbots", "GroupSetLeaderOperation: Changed leader to {}", newLeader->GetName());
         return true;
     }

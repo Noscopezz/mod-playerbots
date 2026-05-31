@@ -8,9 +8,10 @@
 #include "Player.h"
 #include "Playerbots.h"
 
-bool ShadowProtectionTrigger::IsActive()
+bool PowerWordFortitudeOnPartyTrigger::IsActive()
 {
-    return BuffTrigger::IsActive() && !botAI->HasAura("prayer of shadow protection", GetTarget());
+    return BuffOnPartyTrigger::IsActive() && !botAI->HasAura("power word : fortitude", GetTarget()) &&
+           !botAI->HasAura("prayer of fortitude", GetTarget());
 }
 
 bool PowerWordFortitudeTrigger::IsActive()
@@ -19,10 +20,41 @@ bool PowerWordFortitudeTrigger::IsActive()
            !botAI->HasAura("prayer of fortitude", GetTarget());
 }
 
+bool DivineSpiritOnPartyTrigger::IsActive()
+{
+    return BuffOnPartyTrigger::IsActive() && !botAI->HasAura("divine spirit", GetTarget()) &&
+           !botAI->HasAura("prayer of spirit", GetTarget());
+}
+
 bool DivineSpiritTrigger::IsActive()
 {
     return BuffTrigger::IsActive() && !botAI->HasAura("divine spirit", GetTarget()) &&
            !botAI->HasAura("prayer of spirit", GetTarget());
+}
+
+bool PrayerOfFortitudeTrigger::IsActive()
+{
+    Unit* target = GetTarget();
+    if (!target || !target->IsPlayer())
+        return false;
+
+    return BuffOnPartyTrigger::IsActive() && !botAI->HasAura("prayer of fortitude", GetTarget()) &&
+           botAI->GetBot()->IsInSameGroupWith((Player*)GetTarget()) &&
+           botAI->GetBuffedCount((Player*)GetTarget(), "prayer of fortitude") < 4 &&
+           !botAI->GetBuffedCount((Player*)GetTarget(), "power word: fortitude");
+}
+
+bool PrayerOfSpiritTrigger::IsActive()
+{
+    Unit* target = GetTarget();
+    if (!target || !target->IsPlayer())
+        return false;
+
+    return BuffOnPartyTrigger::IsActive() && !botAI->HasAura("prayer of spirit", GetTarget()) &&
+           botAI->GetBot()->IsInSameGroupWith((Player*)GetTarget()) &&
+           // botAI->GetManaPercent() > 50 &&
+           botAI->GetBuffedCount((Player*)GetTarget(), "prayer of spirit") < 4 &&
+           !botAI->GetBuffedCount((Player*)GetTarget(), "divine spirit");
 }
 
 bool InnerFireTrigger::IsActive()

@@ -19,8 +19,6 @@ void PriestNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(
         new TriggerNode("inner fire",{ NextAction("inner fire", 10.0f) }));
-    triggers.push_back(
-        new TriggerNode("vampiric embrace", { NextAction("vampiric embrace", 16.0f) }));
     triggers.push_back(new TriggerNode(
         "party member dead",{ NextAction("remove shadowform", ACTION_CRITICAL_HEAL + 11),
                                                NextAction("resurrection", ACTION_CRITICAL_HEAL + 10) }));
@@ -56,6 +54,12 @@ void PriestBuffStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     NonCombatStrategy::InitTriggers(triggers);
 
+    triggers.push_back(
+        new TriggerNode("prayer of fortitude on party",
+                       { NextAction("prayer of fortitude on party", 12.0f) }));
+    triggers.push_back(
+        new TriggerNode("prayer of spirit on party",
+                       { NextAction("prayer of spirit on party", 14.0f) }));
     triggers.push_back(
         new TriggerNode("power word: fortitude on party",
                        { NextAction("power word: fortitude on party", 11.0f) }));

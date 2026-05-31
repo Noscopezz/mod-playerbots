@@ -16,7 +16,7 @@ public:
     PaladinBuffManaStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
 
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
-    std::string const getName() override { return "bwisdom"; }
+    std::string const getName() override { return "bmana"; }
 };
 
 class PaladinBuffHealthStrategy : public Strategy
@@ -25,7 +25,7 @@ public:
     PaladinBuffHealthStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
 
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
-    std::string const getName() override { return "bsanc"; }
+    std::string const getName() override { return "bhealth"; }
 };
 
 class PaladinBuffDpsStrategy : public Strategy
@@ -34,7 +34,7 @@ public:
     PaladinBuffDpsStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
 
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
-    std::string const getName() override { return "bmight"; }
+    std::string const getName() override { return "bdps"; }
 };
 
 class PaladinBuffArmorStrategy : public Strategy
@@ -88,7 +88,7 @@ public:
     PaladinBuffStatsStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
 
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
-    std::string const getName() override { return "bkings"; }
+    std::string const getName() override { return "bstats"; }
 };
 
 class PaladinShadowResistanceStrategy : public Strategy
