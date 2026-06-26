@@ -353,11 +353,13 @@ float RsHalionP2Multiplier::GetValue(Action* action)
         if ((bot->getClass() == CLASS_ROGUE || bot->getClass() == CLASS_WARRIOR) &&
             !dynamic_cast<MeleeAction*>(action) &&
             !dynamic_cast<RsHalionCutterAction*>(action) &&
+            !dynamic_cast<RsHalionEnterPortalAction*>(action) &&
             !dynamic_cast<RsHalionP2AvoidConesAction*>(action))
             return 0.0f;
 
         if (RsHalionCutterBeamDanger(botAI, bot) &&
             !dynamic_cast<RsHalionCutterAction*>(action) &&
+            !dynamic_cast<RsHalionEnterPortalAction*>(action) &&
             !dynamic_cast<RsHalionP2AvoidConesAction*>(action))
             return 0.0f;
     }

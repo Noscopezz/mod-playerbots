@@ -1149,10 +1149,15 @@ inline bool RsHalionCutterShouldMove(uint32 instanceId)
     {
         if (it->second.active)
             return true;
-        if (it->second.encounterStart != 0 &&
-            GetMSTimeDiffToNow(it->second.encounterStart) >= RS_HALION_FIRST_SHOOT_MS - RS_HALION_CUTTER_LEAD_MS)
-            return true;
-        return false;
+        if (it->second.encounterStart == 0)
+            return false;
+
+        uint32 const sinceStart = GetMSTimeDiffToNow(it->second.encounterStart);
+        if (sinceStart < RS_HALION_FIRST_SHOOT_MS)
+            return sinceStart >= RS_HALION_FIRST_SHOOT_MS - RS_HALION_CUTTER_LEAD_MS;
+
+        uint32 const intoCycle = (sinceStart - RS_HALION_FIRST_SHOOT_MS) % RS_HALION_CUTTER_CYCLE_MS;
+        return intoCycle >= RS_HALION_CUTTER_CYCLE_MS - RS_HALION_CUTTER_LEAD_MS;
     }
 
     RubySanctumHelpers::CutterTiming const& state = it->second;
@@ -1170,6 +1175,30 @@ inline bool RsHalionCutterActive(uint32 instanceId)
     std::lock_guard<std::recursive_mutex> lock(RubySanctumHelpers::stateMutex);
     auto const it = RubySanctumHelpers::cutterTiming.find(instanceId);
     return it != RubySanctumHelpers::cutterTiming.end() && it->second.active;
+}
+
+inline uint32 RsHalionCutterMsUntilShoot(uint32 instanceId)
+{
+    std::lock_guard<std::recursive_mutex> lock(RubySanctumHelpers::stateMutex);
+    auto const it = RubySanctumHelpers::cutterTiming.find(instanceId);
+    if (it == RubySanctumHelpers::cutterTiming.end())
+        return RS_HALION_CUTTER_CYCLE_MS;
+
+    RubySanctumHelpers::CutterTiming const& state = it->second;
+    if (state.active)
+        return 0;
+
+    if (state.lastShootTime == 0)
+    {
+        if (state.encounterStart == 0)
+            return RS_HALION_CUTTER_CYCLE_MS;
+        uint32 const elapsed = GetMSTimeDiffToNow(state.encounterStart);
+        return elapsed >= RS_HALION_FIRST_SHOOT_MS ? 0 : RS_HALION_FIRST_SHOOT_MS - elapsed;
+    }
+
+    uint32 const since = GetMSTimeDiffToNow(state.lastShootTime);
+    uint32 const intoCycle = since % RS_HALION_CUTTER_CYCLE_MS;
+    return RS_HALION_CUTTER_CYCLE_MS - intoCycle;
 }
 
 inline bool RsHalionCollectOrbPairs(Unit* boss, std::vector<std::pair<Unit*, Unit*>>& pairs)
@@ -1232,6 +1261,40 @@ inline bool RsHalionCutterBeamDanger(PlayerbotAI* botAI, Player* bot)
 
     cache[bot->GetGUID()] = {now, danger};
     return danger;
+}
+
+inline constexpr float RS_HALION_PORTAL_FINISH_DIST = 15.0f;
+inline constexpr uint32 RS_HALION_PORTAL_COMMIT_MARGIN_MS = 1200;
+
+inline bool RsHalionPortalCommit(PlayerbotAI* botAI, Player* bot)
+{
+    if (!RsHalionInTwilight(bot))
+        return false;
+
+    Unit* twilightBoss = RsHalionTwilightBoss(botAI);
+    if (!twilightBoss || twilightBoss->HealthAbovePct(50))
+        return false;
+    if (RsHalionP3TwilightAssigned(botAI, bot))
+        return false;
+    if (RsHalionHasConsumption(bot))
+        return false;
+
+    GameObject* portal = RsHalionFindPortal(botAI);
+    if (!portal)
+        return false;
+
+    float const dist = bot->GetExactDist2d(portal->GetPositionX(), portal->GetPositionY());
+    if (dist <= RS_HALION_PORTAL_FINISH_DIST)
+        return true;
+
+    if (RsHalionCutterActive(bot->GetInstanceId()))
+        return false;
+
+    float speed = bot->GetSpeed(MOVE_RUN);
+    if (speed < 1.0f)
+        speed = 7.0f;
+    uint32 const reachMs = static_cast<uint32>((dist / speed) * 1000.0f);
+    return reachMs + RS_HALION_PORTAL_COMMIT_MARGIN_MS <= RsHalionCutterMsUntilShoot(bot->GetInstanceId());
 }
 
 class RsHalionTankPositionAction : public AttackAction

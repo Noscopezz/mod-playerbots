@@ -330,7 +330,7 @@ bool RsHalionEnterPortalAction::Execute(Event )
         if (RsHalionHasConsumption(bot))
             return false;
 
-        if (RsHalionCutterShouldMove(bot->GetInstanceId()))
+        if (!RsHalionPortalCommit(botAI, bot))
             return false;
 
         p3TwilightExit = true;
@@ -434,6 +434,18 @@ bool RsHalionEnterPortalAction::Execute(Event )
             }
         }
 
+        if (p3TwilightExit && RsHalionCutterShouldMove(bot->GetInstanceId()) &&
+            !bot->HasAura(RS_SPELL_MAGIC_BARRIER))
+        {
+            bot->AddAura(RS_SPELL_MAGIC_BARRIER, bot);
+            ObjectGuid const barrierGuid = bot->GetGUID();
+            botAI->AddTimedEvent([barrierGuid]()
+            {
+                if (Player* p = ObjectAccessor::FindPlayer(barrierGuid))
+                    p->RemoveAura(RS_SPELL_MAGIC_BARRIER);
+            }, 5000);
+        }
+
         return MoveTo(bot->GetMapId(), goalX, goalY, portal->GetPositionZ(),
                       false, false, false, false, MovementPriority::MOVEMENT_FORCED);
     }
@@ -515,6 +527,9 @@ bool RsHalionP2AvoidConesAction::Execute(Event )
 
     Unit* boss = RsHalionTwilightBoss(botAI);
     if (!boss)
+        return false;
+
+    if (RsHalionPortalCommit(botAI, bot))
         return false;
 
     if (RsHalionCutterShouldMove(bot->GetInstanceId()))
@@ -840,6 +855,9 @@ bool RsHalionCutterAction::Execute(Event )
         return false;
 
     if (!RsHalionCutterShouldMove(bot->GetInstanceId()))
+        return false;
+
+    if (RsHalionPortalCommit(botAI, bot))
         return false;
 
     float const bossX = boss->GetPositionX();

@@ -205,16 +205,7 @@ bool RsHalionEnterPortalTrigger::IsActive()
     bool const inTwilight = RsHalionInTwilight(bot);
 
     if (inTwilight)
-    {
-        Unit* twilightBoss = RsHalionTwilightBoss(botAI);
-        if (!twilightBoss || twilightBoss->HealthAbovePct(50))
-            return false;
-        if (RsHalionP3TwilightAssigned(botAI, bot))
-            return false;
-        if (RsHalionCutterShouldMove(bot->GetInstanceId()))
-            return false;
-        return RsHalionFindPortal(botAI) != nullptr;
-    }
+        return RsHalionPortalCommit(botAI, bot);
 
     if (RsHalionEnteringTwilight(botAI, bot))
         return true;
