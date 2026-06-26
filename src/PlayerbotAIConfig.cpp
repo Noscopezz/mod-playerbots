@@ -261,10 +261,6 @@ bool PlayerbotAIConfig::Initialize()
 
     EnableICCBuffs = sConfigMgr->GetOption<bool>("AiPlayerbot.EnableICCBuffs", true);
 
-    //////////////////////////// Ruby Sanctum
-
-    EnableRSThreatReset = sConfigMgr->GetOption<bool>("AiPlayerbot.EnableRSThreatReset", true);
-
     //////////////////////////// Professions
     classMatchingProfessionChance =
         std::min<uint32>(100, sConfigMgr->GetOption<uint32>("AiPlayerbot.ClassMatchingProfessionChance", 30));

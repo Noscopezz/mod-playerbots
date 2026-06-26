@@ -89,7 +89,6 @@ public:
     bool enabled;
     bool disabledWithoutRealPlayer;
     bool EnableICCBuffs;
-    bool EnableRSThreatReset;
     bool allowAccountBots, allowGuildBots, allowTrustedAccountBots;
     bool randomBotGuildNearby, randomBotInvitePlayer, inviteChat;
     uint32 globalCoolDown, reactDelay, maxWaitForMove, disableMoveSplinePath, maxMovementSearchTime, expireActionTime,

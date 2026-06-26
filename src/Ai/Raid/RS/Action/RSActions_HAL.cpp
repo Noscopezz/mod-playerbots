@@ -1,3 +1,9 @@
+/*
+ * This file is part of the mod-playerbots module for AzerothCore. See AUTHORS file for Copyright
+ * information; released under GNU GPL v2 license, redistribute/modify under version 2 of the License,
+ * or (at your option) any later version.
+ */
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -31,7 +37,7 @@ bool RsHalionTankPositionAction::Execute(Event )
     std::vector<Unit*> adds;
     RsHalionCollectAdds(botAI, adds);
 
-    if (sPlayerbotAIConfig.EnableRSThreatReset)
+    if (botAI->HasCheat(BotCheatMask::raid))
     {
         for (Unit* add : adds)
         {
@@ -98,7 +104,7 @@ bool RsHalionTankPositionAction::Execute(Event )
         }
     }
 
-    if (sPlayerbotAIConfig.EnableRSThreatReset && boss->GetVictim() != bot)
+    if (botAI->HasCheat(BotCheatMask::raid) && boss->GetVictim() != bot)
     {
         ThreatManager& mgr = boss->GetThreatMgr();
         mgr.AddThreat(bot, 1000000.0f, nullptr, true, true);
@@ -494,7 +500,7 @@ bool RsHalionP2TankPositionAction::Execute(Event )
             group->SetTargetIcon(RtiTargetValue::crossIndex, bot->GetGUID(), boss->GetGUID());
     }
 
-    if (sPlayerbotAIConfig.EnableRSThreatReset)
+    if (botAI->HasCheat(BotCheatMask::raid))
     {
         ThreatManager& mgr = boss->GetThreatMgr();
         if (boss->GetVictim() != bot)

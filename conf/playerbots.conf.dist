@@ -2102,12 +2102,6 @@ AiPlayerbot.RandomClassSpecIndex.11.6 = 6
 # Default: 1 (enabled)
 AiPlayerbot.EnableICCBuffs = 1
 
-# Let Ruby Sanctum tank bots force a threat reset (max threat + fixate + taunt cooldown reset)
-# so taunt swaps land reliably. Needed while the core's taunt/threat handling is unreliable.
-# Turn off once the core fixes threat reset.
-# Default: 1 (enabled)
-AiPlayerbot.EnableRSThreatReset = 1
-
 #
 #
 ####################################################################################################
