@@ -20,6 +20,7 @@
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
 #include "RSScripts.h"
+#include "RSShared.h"
 #include "RSStrategy.h"
 #include "RSTriggers.h"
 #include "RtiTargetValue.h"
@@ -71,12 +72,8 @@ inline bool RsCastClassTaunt(PlayerbotAI* botAI, Player* bot, Unit* target)
 
     bool const threatReset = botAI->HasCheat(BotCheatMask::raid);
 
-    if (threatReset && target->GetVictim() != bot)
-    {
-        ThreatManager& mgr = target->GetThreatMgr();
-        mgr.AddThreat(bot, 1000000.0f, nullptr, true, true);
-        mgr.FixateTarget(bot);
-    }
+    if (threatReset)
+        RsForceThreat(target, bot);
 
     switch (bot->getClass())
     {
@@ -160,15 +157,7 @@ inline Unit* RsHalionFindBoss(PlayerbotAI* botAI, std::string const& name, uint3
     if (boss && boss->IsAlive() && boss->GetEntry() == entry)
         return boss;
 
-    GuidVector const targets = botAI->GetAiObjectContext()->GetValue<GuidVector>("possible targets no los")->Get();
-    for (ObjectGuid const& guid : targets)
-    {
-        Unit* unit = botAI->GetUnit(guid);
-        if (unit && unit->IsAlive() && unit->GetEntry() == entry)
-            return unit;
-    }
-
-    return nullptr;
+    return RsFindTarget(botAI, [entry](Unit* unit) { return unit->GetEntry() == entry; });
 }
 
 inline Unit* RsHalionTwilightBoss(PlayerbotAI* botAI)
@@ -454,9 +443,7 @@ public:
     bool Execute(Event event) override;
 
 private:
-    bool IsDesignatedMarker();
     Unit* FindPriorityAdd();
-    void UpdateSkullMarker(Unit* priorityAdd);
 };
 
 class RsZarithrianTankAction : public AttackAction
@@ -538,13 +525,7 @@ inline int RsTrashPriorityRank(uint32 entry)
 
 inline void RsTrashCollect(PlayerbotAI* botAI, std::vector<Unit*>& out)
 {
-    GuidVector const targets = botAI->GetAiObjectContext()->GetValue<GuidVector>("possible targets no los")->Get();
-    for (ObjectGuid const& guid : targets)
-    {
-        Unit* unit = botAI->GetUnit(guid);
-        if (unit && unit->IsAlive() && RsTrashIsTrashEntry(unit->GetEntry()))
-            out.push_back(unit);
-    }
+    RsCollectTargets(botAI, out, [](Unit* unit) { return RsTrashIsTrashEntry(unit->GetEntry()); });
 }
 
 inline bool RsTrashActive(PlayerbotAI* botAI, Player* bot)
@@ -552,20 +533,10 @@ inline bool RsTrashActive(PlayerbotAI* botAI, Player* bot)
     if (!bot || !bot->IsInCombat())
         return false;
 
-    GuidVector const targets = botAI->GetAiObjectContext()->GetValue<GuidVector>("possible targets no los")->Get();
-    for (ObjectGuid const& guid : targets)
+    return RsFindTarget(botAI, [bot](Unit* unit)
     {
-        Unit* unit = botAI->GetUnit(guid);
-        if (!unit || !unit->IsAlive())
-            continue;
-
-        if (!RsTrashIsCharscale(unit->GetEntry()))
-            continue;
-
-        if (bot->GetExactDist2d(unit) <= RS_TRASH_DETECT_RANGE)
-            return true;
-    }
-    return false;
+        return RsTrashIsCharscale(unit->GetEntry()) && bot->GetExactDist2d(unit) <= RS_TRASH_DETECT_RANGE;
+    }) != nullptr;
 }
 
 class RsTrashAddsAction : public AttackAction
@@ -575,9 +546,7 @@ public:
     bool Execute(Event event) override;
 
 private:
-    bool IsDesignatedMarker();
     Unit* FindPriorityAdd();
-    void UpdateSkullMarker(Unit* priorityAdd);
 };
 
 class RsTrashTankAction : public AttackAction
@@ -793,29 +762,19 @@ inline Player* RsHalionConsumptionHealTarget(PlayerbotAI* botAI)
     return worst;
 }
 
+inline bool RsHalionIsAdd(Unit* unit)
+{
+    return unit->GetEntry() == NPC_LIVING_INFERNO || unit->GetEntry() == NPC_LIVING_EMBER;
+}
+
 inline void RsHalionCollectAdds(PlayerbotAI* botAI, std::vector<Unit*>& adds)
 {
-    GuidVector const targets = botAI->GetAiObjectContext()->GetValue<GuidVector>("possible targets no los")->Get();
-    for (ObjectGuid const& guid : targets)
-    {
-        Unit* unit = botAI->GetUnit(guid);
-        if (unit && unit->IsAlive() &&
-            (unit->GetEntry() == NPC_LIVING_INFERNO || unit->GetEntry() == NPC_LIVING_EMBER))
-            adds.push_back(unit);
-    }
+    RsCollectTargets(botAI, adds, RsHalionIsAdd);
 }
 
 inline bool RsHalionAnyAddAlive(PlayerbotAI* botAI)
 {
-    GuidVector const targets = botAI->GetAiObjectContext()->GetValue<GuidVector>("possible targets no los")->Get();
-    for (ObjectGuid const& guid : targets)
-    {
-        Unit* unit = botAI->GetUnit(guid);
-        if (unit && unit->IsAlive() &&
-            (unit->GetEntry() == NPC_LIVING_INFERNO || unit->GetEntry() == NPC_LIVING_EMBER))
-            return true;
-    }
-    return false;
+    return RsFindTarget(botAI, RsHalionIsAdd) != nullptr;
 }
 
 inline constexpr uint32 RS_HALION_PORTAL_ADD_CLEAR_MS = 5000;
@@ -914,7 +873,7 @@ inline Player* RsHalionAddTank(PlayerbotAI* botAI)
     return RsHalionPickTank(group, [](Player* member) { return !RsHalionInTwilight(member); });
 }
 
-inline Player* RsHalionTwilightTank(PlayerbotAI* botAI)
+inline Player* RsHalionTwilightTankUncached(PlayerbotAI* botAI)
 {
     Group* group = botAI->GetBot()->GetGroup();
     if (!group)
@@ -924,6 +883,29 @@ inline Player* RsHalionTwilightTank(PlayerbotAI* botAI)
     }
 
     return RsHalionPickTank(group, [](Player* member) { return RsHalionInTwilight(member); });
+}
+
+inline Player* RsHalionTwilightTank(PlayerbotAI* botAI)
+{
+    Player* selfBot = botAI->GetBot();
+    if (!selfBot->GetGroup())
+        return RsHalionTwilightTankUncached(botAI);
+
+    std::lock_guard<std::recursive_mutex> lock(RubySanctumHelpers::stateMutex);
+    RubySanctumHelpers::TankCache& slot = RubySanctumHelpers::twilightTankCache[selfBot->GetInstanceId()];
+    uint32 const now = getMSTime();
+    if (slot.stamp == now)
+    {
+        if (slot.guid.IsEmpty())
+            return nullptr;
+        if (Player* cached = botAI->GetPlayer(slot.guid); cached && cached->IsAlive())
+            return cached;
+    }
+
+    Player* result = RsHalionTwilightTankUncached(botAI);
+    slot.stamp = now;
+    slot.guid = result ? result->GetGUID() : ObjectGuid::Empty;
+    return result;
 }
 
 inline Player* RsHalionFirstCrosser(PlayerbotAI* botAI)
@@ -957,7 +939,7 @@ inline Player* RsHalionLiveMainTank(PlayerbotAI* botAI)
     return nullptr;
 }
 
-inline Player* RsHalionBossTank(PlayerbotAI* botAI)
+inline Player* RsHalionBossTankUncached(PlayerbotAI* botAI)
 {
     if (Player* mt = RsHalionLiveMainTank(botAI))
         return mt;
@@ -978,6 +960,29 @@ inline Player* RsHalionBossTank(PlayerbotAI* botAI)
     }
 
     return anyTank;
+}
+
+inline Player* RsHalionBossTank(PlayerbotAI* botAI)
+{
+    Player* selfBot = botAI->GetBot();
+    if (!selfBot->GetGroup())
+        return RsHalionBossTankUncached(botAI);
+
+    std::lock_guard<std::recursive_mutex> lock(RubySanctumHelpers::stateMutex);
+    RubySanctumHelpers::TankCache& slot = RubySanctumHelpers::bossTankCache[selfBot->GetInstanceId()];
+    uint32 const now = getMSTime();
+    if (slot.stamp == now)
+    {
+        if (slot.guid.IsEmpty())
+            return nullptr;
+        if (Player* cached = botAI->GetPlayer(slot.guid); cached && cached->IsAlive())
+            return cached;
+    }
+
+    Player* result = RsHalionBossTankUncached(botAI);
+    slot.stamp = now;
+    slot.guid = result ? result->GetGUID() : ObjectGuid::Empty;
+    return result;
 }
 
 inline bool RsHalionTanksAdds(PlayerbotAI* botAI, Player* bot)

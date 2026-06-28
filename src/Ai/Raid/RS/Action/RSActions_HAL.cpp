@@ -40,13 +40,7 @@ bool RsHalionTankPositionAction::Execute(Event )
     if (botAI->HasCheat(BotCheatMask::raid))
     {
         for (Unit* add : adds)
-        {
-            if (add->GetVictim() == bot)
-                continue;
-            ThreatManager& mgr = add->GetThreatMgr();
-            mgr.AddThreat(bot, 1000000.0f, nullptr, true, true);
-            mgr.FixateTarget(bot);
-        }
+            RsForceThreat(add, bot);
     }
 
     if (Group* group = bot->GetGroup())

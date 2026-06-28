@@ -33,6 +33,9 @@ namespace RubySanctumHelpers
     std::unordered_map<uint32, uint32> portalCountdownLastShown;
     std::unordered_map<uint32, std::map<ObjectGuid, uint32>> portalSeen;
 
+    std::unordered_map<uint32, TankCache> bossTankCache;
+    std::unordered_map<uint32, TankCache> twilightTankCache;
+
     std::unordered_map<ObjectGuid, uint32> breathTwilightGrant;
     std::unordered_map<ObjectGuid, uint32> breathPhysicalGrant;
     std::unordered_map<ObjectGuid, uint32> p3RescueGrant;
@@ -58,6 +61,8 @@ namespace RubySanctumHelpers
         portalCountdownLastShown.erase(instanceId);
         portalSeen.erase(instanceId);
         bossHealth.erase(instanceId);
+        bossTankCache.erase(instanceId);
+        twilightTankCache.erase(instanceId);
 
         for (auto it = p3TwilightAssignment.begin(); it != p3TwilightAssignment.end(); )
         {

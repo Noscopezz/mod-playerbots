@@ -83,6 +83,15 @@ namespace RubySanctumHelpers
     extern std::unordered_map<uint32, uint32> portalCountdownLastShown;
     extern std::unordered_map<uint32, std::map<ObjectGuid, uint32>> portalSeen;
 
+    struct TankCache
+    {
+        uint32 stamp;
+        ObjectGuid guid;
+    };
+
+    extern std::unordered_map<uint32, TankCache> bossTankCache;
+    extern std::unordered_map<uint32, TankCache> twilightTankCache;
+
     // per-bot transient fight state keyed by bot guid, cleared on encounter reset
     extern std::unordered_map<ObjectGuid, uint32> breathTwilightGrant;
     extern std::unordered_map<ObjectGuid, uint32> breathPhysicalGrant;
